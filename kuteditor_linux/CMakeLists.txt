@@ -20,6 +20,7 @@ find_package(Qt6 6.7 REQUIRED COMPONENTS
     Concurrent
     ShaderTools
     Network
+    Qml
 )
 if(UNIX AND NOT APPLE)
     find_package(Qt6 REQUIRED COMPONENTS DBus)
@@ -244,7 +245,36 @@ if(HAVE_KUTPOD)
     list(APPEND HEADERS src/net/KutPodClient.h)
 endif()
 
+# ── Sistema de plugins (biblioteca estática: la usan la app y los tests) ──
+add_library(kutplugins STATIC
+    src/plugins/PluginManager.cpp
+    src/plugins/PluginHost.cpp
+    src/plugins/PluginManager.h
+    src/plugins/PluginHost.h
+    src/plugins/KutPluginApi.h
+)
+target_include_directories(kutplugins PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(kutplugins PUBLIC Qt6::Core Qt6::Gui Qt6::Qml)
+
 add_executable(kuteditor ${SOURCES} ${HEADERS})
+target_link_libraries(kuteditor PRIVATE kutplugins)
+
+# ── Tests (opcional): cmake -DKUT_BUILD_TESTS=ON ──
+option(KUT_BUILD_TESTS "Compilar los tests" OFF)
+if(KUT_BUILD_TESTS)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    enable_testing()
+    add_executable(test_pluginmanager tests/test_pluginmanager.cpp)
+    target_link_libraries(test_pluginmanager PRIVATE kutplugins Qt6::Test)
+    # Plugin nativo de prueba (biblioteca que implementa KutPlugin)
+    add_library(native_test_plugin MODULE tests/native_plugin/NativeTestPlugin.cpp)
+    target_link_libraries(native_test_plugin PRIVATE Qt6::Core)
+    target_include_directories(native_test_plugin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(test_pluginmanager PRIVATE
+        NATIVE_TEST_PLUGIN_PATH="$<TARGET_FILE:native_test_plugin>")
+    add_dependencies(test_pluginmanager native_test_plugin)
+    add_test(NAME pluginmanager COMMAND test_pluginmanager)
+endif()
 
 # ── Compile GPU mipmap compute shader to .qsb ──
 qt_add_shaders(kuteditor "mipmap_compute_shader"
@@ -310,6 +340,7 @@ qt_add_resources(kuteditor "qml_files"
         src/ui/components/ChapterEditor.qml
         src/ui/components/OnlineLibrary.qml
         src/ui/components/PublishWindow.qml
+        src/ui/components/PluginsDialog.qml
         src/ui/fonts/MaterialSymbolsOutlined-ExtraLight.ttf
 )
 

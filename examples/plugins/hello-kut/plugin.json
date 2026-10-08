@@ -1,0 +1,12 @@
+{
+  "id": "hello-kut",
+  "name": "Hola KutEditor (ejemplo)",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "KutStudio",
+  "description": "Plugin de ejemplo en QML: añade una acción al menú Plugins que cuenta las pistas del proyecto. Sirve de plantilla para escribir los tuyos.",
+  "qml": "Main.qml",
+  "actions": [
+    { "id": "count", "title": "Contar pistas del proyecto" }
+  ]
+}

@@ -175,6 +175,12 @@ cmake --build build --config Release
 
 Utiliza **WASAPI** nativo para audio.
 
+## 🔌 Plugins
+
+KutEditor incluye un gestor de plugins (**Plugins → Gestor de plugins…**) para ampliar el editor con módulos en QML
+(sin compilar) o en C++. Documentación y plantilla: [`docs/PLUGINS.md`](docs/PLUGINS.md) y
+[`examples/plugins/hello-kut`](examples/plugins/hello-kut). Disponible en la versión de Linux.
+
 ## 🧩 Script de REAPER: Publish to KutPod
 
 El repositorio incluye `publish_to_kutpod.lua`, un ReaScript para **REAPER** que permite publicar episodios directamente desde tu sesión de REAPER a KutPod:

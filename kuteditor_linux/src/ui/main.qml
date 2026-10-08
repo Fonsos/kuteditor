@@ -2288,6 +2288,26 @@ ApplicationWindow {
                     }
                 }
                 Platform.Menu {
+                    id: pluginsPlatformMenu
+                    title: qsTr("&Plugins")
+                    Platform.MenuItem {
+                        text: qsTr("Gestor de plugins…")
+                        onTriggered: pluginsDialog.open()
+                    }
+                    Platform.MenuSeparator { visible: PluginManager.actions.length > 0 }
+                    Instantiator {
+                        model: PluginManager.actions
+                        delegate: Platform.MenuItem {
+                            required property var modelData
+                            text: modelData.title
+                            shortcut: modelData.shortcut
+                            onTriggered: PluginManager.triggerAction(modelData.pluginId, modelData.id)
+                        }
+                        onObjectAdded: (index, object) => pluginsPlatformMenu.insertItem(index + 2, object)
+                        onObjectRemoved: (index, object) => pluginsPlatformMenu.removeItem(object)
+                    }
+                }
+                Platform.Menu {
                     title: qsTr("Ay&uda")
                     Platform.MenuItem {
                         text: qsTr("Acerca de Kut Editor…")
@@ -2481,6 +2501,25 @@ ApplicationWindow {
                     enabled: ChapterModel.count > 0
                     onTriggered: chapterJsonDlg.open()
                 }
+            }
+        }
+        IntegratedMenu {
+            id: pluginsMenu
+            title: qsTr("&Plugins")
+            IntegratedMenuItem {
+                text: qsTr("Gestor de plugins…")
+                onTriggered: pluginsDialog.open()
+            }
+            IntegratedMenuSeparator { visible: PluginManager.actions.length > 0 }
+            Instantiator {
+                model: PluginManager.actions
+                delegate: IntegratedMenuItem {
+                    required property var modelData
+                    text: modelData.title
+                    onTriggered: PluginManager.triggerAction(modelData.pluginId, modelData.id)
+                }
+                onObjectAdded: (index, object) => pluginsMenu.insertItem(index + 2, object)
+                onObjectRemoved: (index, object) => pluginsMenu.removeItem(object)
             }
         }
         IntegratedMenu {
@@ -4676,6 +4715,10 @@ ApplicationWindow {
     // ========================================================================
     TranscriptionSettings {
         id: transcriptionSettingsDialog
+    }
+
+    PluginsDialog {
+        id: pluginsDialog
     }
 
     Window {

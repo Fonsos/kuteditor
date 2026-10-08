@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QQmlApplicationEngine>
+#include "plugins/PluginManager.h"
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QIcon>
@@ -187,6 +188,19 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("Transcription", transcription);
     engine.rootContext()->setContextProperty("ChapterModel", chapterModel);
     engine.rootContext()->setContextProperty("KutPod", kutpodClient);
+
+    // Gestor de plugins: los plugins pueden pedir estos servicios por nombre
+    PluginManager pluginManager;
+    pluginManager.setEngine(&engine);
+    pluginManager.registerService("AudioEngine", audioEngine);
+    pluginManager.registerService("TrackModel", trackModel);
+    pluginManager.registerService("ExportManager", exportManager);
+    pluginManager.registerService("UndoManager", undoManager);
+    pluginManager.registerService("ProjectIO", projectIO);
+    pluginManager.registerService("Transcription", transcription);
+    pluginManager.registerService("ChapterModel", chapterModel);
+    pluginManager.registerService("KutPod", kutpodClient);
+    engine.rootContext()->setContextProperty("PluginManager", &pluginManager);
 #ifdef HAVE_KUTPOD
     engine.rootContext()->setContextProperty("FeatureKutPod", true);
 #else
@@ -211,6 +225,10 @@ int main(int argc, char *argv[])
     qDebug() << "[main] Cargando QML desde:" << url;
     engine.load(url);
     qDebug() << "[main] QML cargado.";
+
+    // Plugins: buscar en disco y activar los habilitados (con la UI ya cargada)
+    qDebug() << "[main] Plugins encontrados:" << pluginManager.scan();
+    pluginManager.loadEnabled();
 
     // Si se pasó un archivo como argumento (doble clic en .kut), cargarlo.
     const QStringList args = app.arguments();
