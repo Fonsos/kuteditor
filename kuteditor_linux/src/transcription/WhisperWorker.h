@@ -6,6 +6,8 @@
 #include <QString>
 #include <QVariantList>
 
+#include "TranscriptWords.h"
+
 /**
  * Segmento de transcripción con timestamps.
  * Cada segmento corresponde a una frase o fragmento devuelto por Whisper.
@@ -37,19 +39,24 @@ public:
      * @param samples    Audio en float32, mono, 16 kHz.
      * @param trackIndex Índice de la pista (para identificar el resultado).
      * @param language   Código ISO 639-1 ("es", "en", "auto").
+     * @param initialPrompt Texto de arranque para Whisper. Un texto con «eeeh, mmm…»
+     *                   ayuda a que transcriba los sonidos de relleno en vez de omitirlos.
      */
     explicit WhisperWorker(const QString &modelPath,
                            const QVector<float> &samples,
                            int trackIndex,
                            const QString &language = "auto",
+                           const QString &initialPrompt = QString(),
                            QObject *parent = nullptr);
     ~WhisperWorker() override = default;
 
     void run() override;
 
 signals:
-    /// Emitida al completar la transcripción con éxito.
-    void finished(int trackIndex, QVector<TranscriptSegment> segments);
+    /// Emitida al completar la transcripción con éxito: frases (segmentos) y
+    /// palabras con sus tiempos.
+    void finished(int trackIndex, QVector<TranscriptSegment> segments,
+                  QVector<TranscriptWord> words);
 
     /// Emitida en caso de error (modelo no encontrado, fallo de inferencia).
     void failed(int trackIndex, QString errorMessage);
@@ -62,4 +69,5 @@ private:
     QVector<float> m_samples;
     int m_trackIndex;
     QString m_language;
+    QString m_initialPrompt;
 };

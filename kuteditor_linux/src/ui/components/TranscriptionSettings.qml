@@ -125,6 +125,31 @@ Window {
                 }
             }
 
+            // ---- Texto de arranque (para no perder «eeeh», «mmm»…) ----
+            Column {
+                width: parent.width
+                spacing: 4
+                Label {
+                    text: qsTr("Texto de arranque:")
+                    color: "#ecf0f1"
+                    font.pixelSize: 13
+                }
+                TextField {
+                    width: parent.width
+                    text: Transcription.initialPrompt
+                    placeholderText: qsTr("Eeeh, mmm, o sea, eh... Pues, eeeh, vale.")
+                    selectByMouse: true
+                    onEditingFinished: Transcription.initialPrompt = text
+                }
+                Label {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Whisper tiende a «limpiar» las muletillas. Un texto con ejemplos de «eeeh», «mmm»… ayuda a que las transcriba, y así se pueden detectar y quitar después. Escríbelo en el idioma del podcast.")
+                    color: "#95a5a6"
+                    font.pixelSize: 11
+                }
+            }
+
             // ---- Separador ----
             Rectangle {
                 width: parent.width

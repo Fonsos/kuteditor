@@ -55,6 +55,21 @@ y recibe un objeto **`host`**:
 Funciones opcionales que llama el gestor: `onAction(id)` y `onShutdown()`.
 Ejemplo completo: [`examples/plugins/hello-kut`](../examples/plugins/hello-kut).
 
+## Transcripción palabra a palabra
+
+El servicio `Transcription` guarda, además de las frases (`transcriptionSegments(pista)`), las **palabras con sus
+tiempos** de cada pista, que es lo que necesitan los plugins de edición por texto:
+
+| `Transcription…` | |
+|---|---|
+| `transcriptionWords(pista)` | lista de `{ startSec, endSec, text, prob }` (segundos de la línea de tiempo) |
+| `hasWordTimestamps(pista)` | `false` en transcripciones hechas con versiones anteriores: hay que volver a transcribir |
+| `initialPrompt` | texto de arranque que se le da a Whisper (por defecto, con «eeeh, mmm…» para que no los omita) |
+
+La puntuación va pegada a la palabra («mundo,», «¿Qué»). Los tiempos salen de los tokens de Whisper (precisión
+de unos ~100 ms) y se normalizan para que no haya solapes. Se guardan en el proyecto (`words` dentro de cada
+transcripción).
+
 ## Plugin nativo (C++)
 
 Una biblioteca compartida que implementa `KutPlugin` (`src/plugins/KutPluginApi.h`, solo cabeceras; no hay que

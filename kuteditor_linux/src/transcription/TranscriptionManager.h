@@ -44,6 +44,10 @@ class TranscriptionManager : public QObject
     Q_PROPERTY(QString activeModel READ activeModel
                WRITE setActiveModel NOTIFY modelStatusChanged)
 
+    /// Texto de arranque para Whisper (ayuda a transcribir «eeeh», «mmm»…)
+    Q_PROPERTY(QString initialPrompt READ initialPrompt
+               WRITE setInitialPrompt NOTIFY initialPromptChanged)
+
     /// Idioma de transcripción ("auto", "es", "en", ...)
     Q_PROPERTY(QString language READ language
                WRITE setLanguage NOTIFY languageChanged)
@@ -76,6 +80,9 @@ public:
     QString activeModel() const { return m_activeModel; }
     void setActiveModel(const QString &model);
 
+    QString initialPrompt() const { return m_initialPrompt; }
+    void setInitialPrompt(const QString &prompt);
+
     QString language() const { return m_language; }
     void setLanguage(const QString &lang);
 
@@ -104,6 +111,14 @@ public:
     /// Devuelve los segmentos de transcripción como QVariantList de mapas.
     /// Cada mapa: { startSec, endSec, text }.
     Q_INVOKABLE QVariantList transcriptionSegments(int trackIndex) const;
+
+    /// Devuelve las palabras con tiempos como QVariantList de mapas:
+    /// { startSec, endSec, text, prob }. Vacío si la transcripción es anterior
+    /// a la versión con palabras (hay que volver a transcribir).
+    Q_INVOKABLE QVariantList transcriptionWords(int trackIndex) const;
+
+    /// ¿La transcripción de la pista tiene tiempos por palabra?
+    Q_INVOKABLE bool hasWordTimestamps(int trackIndex) const;
 
     /// Elimina la transcripción de una pista.
     Q_INVOKABLE void clearTranscription(int trackIndex);
@@ -146,6 +161,7 @@ public:
 signals:
     void modelStatusChanged();
     void languageChanged();
+    void initialPromptChanged();
     /// Resultado del chequeo de actualizaciones (mensaje descriptivo)
     void modelCheckResult(const QString &message, bool hasUpdates);
 
@@ -168,7 +184,8 @@ signals:
     void downloadError(QString message);
 
 private slots:
-    void onWorkerFinished(int trackIndex, QVector<TranscriptSegment> segments);
+    void onWorkerFinished(int trackIndex, QVector<TranscriptSegment> segments,
+                          QVector<TranscriptWord> words);
     void onWorkerFailed(int trackIndex, QString error);
     void onWorkerProgress(int trackIndex, float progress);
 
@@ -176,10 +193,12 @@ private:
     TrackModel *m_trackModel = nullptr;
     QString m_activeModel = "base";
     QString m_language = "auto";
+    QString m_initialPrompt;
 
     // Datos de transcripción por pista
     struct TrackTranscription {
         QVector<TranscriptSegment> segments;
+        QVector<TranscriptWord> words;
         float progress = 0.0f;
         bool transcribing = false;
     };

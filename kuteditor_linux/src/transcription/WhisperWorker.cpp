@@ -13,12 +13,14 @@ WhisperWorker::WhisperWorker(const QString &modelPath,
                              const QVector<float> &samples,
                              int trackIndex,
                              const QString &language,
+                             const QString &initialPrompt,
                              QObject *parent)
     : QObject(parent)
     , m_modelPath(modelPath)
     , m_samples(samples)
     , m_trackIndex(trackIndex)
     , m_language(language)
+    , m_initialPrompt(initialPrompt)
 {
     setAutoDelete(true);
 }
@@ -61,9 +63,23 @@ void WhisperWorker::run()
     struct whisper_full_params wparams =
         whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
 
-    // Idioma explícito para probar si el auto-detect falla
-    wparams.language = "es";
+    // Idioma: el elegido por el usuario. Con «auto» se mantiene el español de siempre
+    // (el autodetectado fallaba con los modelos pequeños).
+    const QByteArray lang = (m_language.isEmpty() || m_language == QLatin1String("auto"))
+                                ? QByteArrayLiteral("es") : m_language.toUtf8();
+    wparams.language = lang.constData();
     wparams.detect_language = false;
+
+    // Tiempos por palabra (a partir de los tokens). No cambia la segmentación en frases.
+    wparams.token_timestamps = true;
+
+    // Con un texto de arranque con «eeeh, mmm…» Whisper tiende a escribir esos sonidos
+    // en lugar de limpiarlos, y no se arrastra el contexto de la frase anterior.
+    const QByteArray prompt = m_initialPrompt.toUtf8();
+    if (!prompt.isEmpty()) {
+        wparams.initial_prompt = prompt.constData();
+        wparams.carry_initial_prompt = true;
+    }
 
     // Usaremos los parámetros estrictamente por defecto (salvo el idioma y el progreso)
     // para descartar que alguna optimización rompa la salida en tu versión 1.8.4.
@@ -101,9 +117,11 @@ void WhisperWorker::run()
 
     emit progressChanged(m_trackIndex, 0.95f);
 
-    // ---- Extraer segmentos ----
+    // ---- Extraer segmentos y palabras ----
     const int nSegments = whisper_full_n_segments(ctx);
+    const whisper_token eot = whisper_token_eot(ctx);       // ids >= eot son marcas especiales
     QVector<TranscriptSegment> segments;
+    QVector<TranscriptWord> words;
     segments.reserve(nSegments);
 
     for (int i = 0; i < nSegments; ++i) {
@@ -112,22 +130,35 @@ void WhisperWorker::run()
         seg.endSec   = whisper_full_get_segment_t1(ctx, i) / 100.0;
         seg.text     = QString::fromUtf8(whisper_full_get_segment_text(ctx, i)).trimmed();
 
-        qDebug() << "[WhisperWorker] Segmento raw" << i << "Start:" << seg.startSec << "End:" << seg.endSec << "Text:" << seg.text;
-
         // Ignorar segmentos vacíos o de solo ruido
-        if (!seg.text.isEmpty() && seg.endSec > seg.startSec) {
-            segments.append(seg);
+        if (seg.text.isEmpty() || seg.endSec <= seg.startSec) continue;
+        segments.append(seg);
+
+        QVector<RawToken> tokens;
+        const int nTok = whisper_full_n_tokens(ctx, i);
+        tokens.reserve(nTok);
+        for (int t = 0; t < nTok; ++t) {
+            const whisper_token_data td = whisper_full_get_token_data(ctx, i, t);
+            RawToken rt;
+            rt.text    = QString::fromUtf8(whisper_full_get_token_text(ctx, i, t));
+            rt.t0      = td.t0 / 100.0;
+            rt.t1      = td.t1 / 100.0;
+            rt.p       = td.p;
+            rt.special = td.id >= eot;
+            tokens.append(rt);
         }
+        words += TranscriptWords::fromTokens(tokens);
     }
+    TranscriptWords::sanitize(words, m_samples.size() / 16000.0);
 
     whisper_free(ctx);
 
     qDebug() << "[WhisperWorker] Transcripción completada:"
-             << segments.size() << "segmentos en"
+             << segments.size() << "segmentos," << words.size() << "palabras en"
              << timer.elapsed() << "ms";
 
     emit progressChanged(m_trackIndex, 1.0f);
-    emit finished(m_trackIndex, segments);
+    emit finished(m_trackIndex, segments, words);
 
 #else
     // whisper.cpp no compilado — no debería llegar aquí, pero por seguridad

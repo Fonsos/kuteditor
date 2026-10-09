@@ -25,6 +25,9 @@ TranscriptionManager::TranscriptionManager(QObject *parent)
     QSettings settings;
     m_activeModel = settings.value("transcription/activeModel", "base").toString();
     m_language    = settings.value("transcription/language", "auto").toString();
+    // Texto de arranque por defecto: induce a Whisper a escribir los sonidos de relleno
+    m_initialPrompt = settings.value("transcription/initialPrompt",
+        QStringLiteral("Eeeh, mmm, o sea, eh... Pues, eeeh, vale. Mmm, ehh, bueno.")).toString();
 
     // Crear el directorio de modelos si no existe
     QDir().mkpath(modelsDir());
@@ -137,6 +140,14 @@ void TranscriptionManager::setActiveModel(const QString &model)
     emit modelStatusChanged();
 }
 
+void TranscriptionManager::setInitialPrompt(const QString &prompt)
+{
+    if (m_initialPrompt == prompt) return;
+    m_initialPrompt = prompt;
+    QSettings().setValue("transcription/initialPrompt", prompt);
+    emit initialPromptChanged();
+}
+
 void TranscriptionManager::setLanguage(const QString &lang)
 {
     if (m_language == lang) return;
@@ -234,11 +245,12 @@ void TranscriptionManager::transcribeTrack(int trackIndex)
     m_transcriptions[trackIndex].transcribing = true;
     m_transcriptions[trackIndex].progress = 0.0f;
     m_transcriptions[trackIndex].segments.clear();
+    m_transcriptions[trackIndex].words.clear();
     emit transcriptionStateChanged(trackIndex);
 
     // Crear y lanzar worker
     auto *worker = new WhisperWorker(
-        modelFilePath(m_activeModel), samples16k, trackIndex, m_language);
+        modelFilePath(m_activeModel), samples16k, trackIndex, m_language, m_initialPrompt);
 
     connect(worker, &WhisperWorker::finished,
             this, &TranscriptionManager::onWorkerFinished,
@@ -298,6 +310,19 @@ QVariantList TranscriptionManager::transcriptionSegments(int trackIndex) const
         list.append(m);
     }
     return list;
+}
+
+QVariantList TranscriptionManager::transcriptionWords(int trackIndex) const
+{
+    auto it = m_transcriptions.constFind(trackIndex);
+    if (it == m_transcriptions.constEnd()) return {};
+    return TranscriptWords::toVariantList(it->words);
+}
+
+bool TranscriptionManager::hasWordTimestamps(int trackIndex) const
+{
+    auto it = m_transcriptions.constFind(trackIndex);
+    return it != m_transcriptions.constEnd() && !it->words.isEmpty();
 }
 
 void TranscriptionManager::clearTranscription(int trackIndex)
@@ -596,6 +621,8 @@ QJsonArray TranscriptionManager::transcriptionsToJson() const
             segsArr.append(s);
         }
         trackObj["segments"] = segsArr;
+        if (!tt.words.isEmpty())
+            trackObj["words"] = TranscriptWords::toJson(tt.words);
         arr.append(trackObj);
     }
     return arr;
@@ -620,6 +647,7 @@ void TranscriptionManager::transcriptionsFromJson(const QJsonArray &arr)
             seg.text     = s["text"].toString();
             tt.segments.append(seg);
         }
+        tt.words = TranscriptWords::fromJson(obj["words"].toArray());   // vacío en proyectos antiguos
         tt.progress = 1.0f;
         tt.transcribing = false;
         m_transcriptions[trackIdx] = tt;
@@ -635,7 +663,8 @@ void TranscriptionManager::transcriptionsFromJson(const QJsonArray &arr)
 // ============================================================================
 
 void TranscriptionManager::onWorkerFinished(int trackIndex,
-                                             QVector<TranscriptSegment> segments)
+                                             QVector<TranscriptSegment> segments,
+                                             QVector<TranscriptWord> words)
 {
     auto &data = m_transcriptions[trackIndex];
     // Si fue cancelado mientras corría, descartar
@@ -645,6 +674,7 @@ void TranscriptionManager::onWorkerFinished(int trackIndex,
         return;
     }
     data.segments = std::move(segments);
+    data.words = std::move(words);
     data.transcribing = false;
     data.progress = 1.0f;
     emit transcriptionStateChanged(trackIndex);

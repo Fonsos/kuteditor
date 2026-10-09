@@ -245,6 +245,14 @@ if(HAVE_KUTPOD)
     list(APPEND HEADERS src/net/KutPodClient.h)
 endif()
 
+# ── Palabras de la transcripción (Qt Core; la usan la app y los tests) ──
+add_library(kuttranscript STATIC
+    src/transcription/TranscriptWords.cpp
+    src/transcription/TranscriptWords.h
+)
+target_include_directories(kuttranscript PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/src/transcription)
+target_link_libraries(kuttranscript PUBLIC Qt6::Core Qt6::Gui)
+
 # ── Sistema de plugins (biblioteca estática: la usan la app y los tests) ──
 add_library(kutplugins STATIC
     src/plugins/PluginManager.cpp
@@ -257,7 +265,7 @@ target_include_directories(kutplugins PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(kutplugins PUBLIC Qt6::Core Qt6::Gui Qt6::Qml)
 
 add_executable(kuteditor ${SOURCES} ${HEADERS})
-target_link_libraries(kuteditor PRIVATE kutplugins)
+target_link_libraries(kuteditor PRIVATE kutplugins kuttranscript)
 
 # ── Tests (opcional): cmake -DKUT_BUILD_TESTS=ON ──
 option(KUT_BUILD_TESTS "Compilar los tests" OFF)
@@ -274,6 +282,10 @@ if(KUT_BUILD_TESTS)
         NATIVE_TEST_PLUGIN_PATH="$<TARGET_FILE:native_test_plugin>")
     add_dependencies(test_pluginmanager native_test_plugin)
     add_test(NAME pluginmanager COMMAND test_pluginmanager)
+
+    add_executable(test_transcriptwords tests/test_transcriptwords.cpp)
+    target_link_libraries(test_transcriptwords PRIVATE kuttranscript Qt6::Test)
+    add_test(NAME transcriptwords COMMAND test_transcriptwords)
 endif()
 
 # ── Compile GPU mipmap compute shader to .qsb ──
