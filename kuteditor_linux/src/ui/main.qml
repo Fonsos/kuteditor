@@ -2247,6 +2247,10 @@ ApplicationWindow {
                         onTriggered: transcriptionSettingsDialog.open()
                     }
                     Platform.MenuItem {
+                        text: qsTr("Editar por texto…")
+                        onTriggered: textEditorWindow.open()
+                    }
+                    Platform.MenuItem {
                         text: qsTr("Transcribir pista seleccionada")
                         enabled: Transcription.available && root.selectedTrack >= 0
                         onTriggered: root.triggerTranscription(root.selectedTrack)
@@ -2461,6 +2465,10 @@ ApplicationWindow {
             IntegratedMenuItem {
                 text: qsTr("Transcripción local (Whisper)…")
                 onTriggered: transcriptionSettingsDialog.open()
+            }
+            IntegratedMenuItem {
+                text: qsTr("Editar por texto…")
+                onTriggered: textEditorWindow.open()
             }
             IntegratedMenuItem {
                 text: qsTr("Transcribir pista seleccionada")
@@ -4719,6 +4727,10 @@ ApplicationWindow {
 
     PluginsDialog {
         id: pluginsDialog
+    }
+
+    TextEditorWindow {
+        id: textEditorWindow
     }
 
     Window {

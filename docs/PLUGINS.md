@@ -70,6 +70,28 @@ La puntuación va pegada a la palabra («mundo,», «¿Qué»). Los tiempos sale
 de unos ~100 ms) y se normalizan para que no haya solapes. Se guardan en el proyecto (`words` dentro de cada
 transcripción).
 
+## Edición por texto
+
+*Herramientas → Editar por texto…* abre el texto unido de todas las pistas (cada hablante con su color).
+Clic en una palabra mueve el cursor de reproducción; seleccionar y pulsar Supr (o «Marcar selección») la
+marca; «Aplicar cortes» elimina lo marcado de la línea de tiempo en **un solo paso de Deshacer** y reajusta
+las transcripciones. Si en ese momento habla otra pista, la palabra solo se silencia en su pista (no se
+desincroniza); en caso contrario se corta de todas las pistas. Opciones: acortar pausas largas y recortar
+el silencio inicial/final.
+
+Los plugins disponen del servicio `TranscriptEditor` (también context property en QML):
+
+| Miembro | Descripción |
+|---|---|
+| `refresh()` / `words()` | Lista unida `{index, track, trackName, start, end, text, marked}` |
+| `markWhere(regex, on=true)` | Marca palabras cuyo texto (sin puntuación, minúsculas) encaja; devuelve cuántas |
+| `markIndices(list, on)` / `setMarked(from, to, on)` / `clearMarks()` | Marcas manuales |
+| `maxPauseSec`, `trimEdges`, `padSec` | Opciones del recorte |
+| `preview()` | `{cuts, mutes, savedSec, deletedWords}` sin tocar nada |
+| `apply()` | Aplica; devuelve los segundos ahorrados (−1 si no había nada) |
+
+Ejemplo (un plugin de muletillas): `TranscriptEditor.markWhere("^(?:e+h+m*|em+|h?m{2,}h*|um+)$")` y `apply()`.
+
 ## Plugin nativo (C++)
 
 Una biblioteca compartida que implementa `KutPlugin` (`src/plugins/KutPluginApi.h`, solo cabeceras; no hay que

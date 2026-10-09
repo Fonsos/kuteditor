@@ -24,6 +24,7 @@
 #include "ui/ChapterModel.h"
 #include "io/FileHelper.h"
 #include "transcription/TranscriptionManager.h"
+#include "transcription/TranscriptEditor.h"
 #include "net/KutPodClient.h"
 
 #ifndef HAVE_KUTPOD
@@ -107,6 +108,7 @@ int main(int argc, char *argv[])
     auto *projectIO      = new ProjectIO(&app);
     auto *fileHelper     = new FileHelper(&app);
     auto *transcription  = new TranscriptionManager(&app);
+    auto *transcriptEditor = new TranscriptEditor(&app);
     auto *chapterModel   = new ChapterModel(&app);
 #ifdef HAVE_KUTPOD
     auto *kutpodClient   = new KutPodClient(&app);
@@ -127,6 +129,7 @@ int main(int argc, char *argv[])
     projectIO->setTranscriptionManager(transcription);
     projectIO->setChapterModel(chapterModel);
     transcription->setTrackModel(trackModel);
+    transcriptEditor->setModels(trackModel, undoManager, transcription);
     chapterModel->setTrackModel(trackModel);
 
     QObject::connect(trackModel, &TrackModel::countChanged,
@@ -186,6 +189,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("ProjectIO", projectIO);
     engine.rootContext()->setContextProperty("FileHelper", fileHelper);
     engine.rootContext()->setContextProperty("Transcription", transcription);
+    engine.rootContext()->setContextProperty("TranscriptEditor", transcriptEditor);
     engine.rootContext()->setContextProperty("ChapterModel", chapterModel);
     engine.rootContext()->setContextProperty("KutPod", kutpodClient);
 
@@ -198,6 +202,7 @@ int main(int argc, char *argv[])
     pluginManager.registerService("UndoManager", undoManager);
     pluginManager.registerService("ProjectIO", projectIO);
     pluginManager.registerService("Transcription", transcription);
+    pluginManager.registerService("TranscriptEditor", transcriptEditor);
     pluginManager.registerService("ChapterModel", chapterModel);
     pluginManager.registerService("KutPod", kutpodClient);
     engine.rootContext()->setContextProperty("PluginManager", &pluginManager);

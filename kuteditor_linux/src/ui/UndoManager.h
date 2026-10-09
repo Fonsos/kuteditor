@@ -51,6 +51,14 @@ public:
     QString undoText() const { return m_stack.undoText(); }
     QString redoText() const { return m_stack.redoText(); }
 
+    /// Agrupa varias operaciones en un solo paso de deshacer (uso desde C++).
+    void beginMacro(const QString &text) { m_stack.beginMacro(text); }
+    void endMacro() { m_stack.endMacro(); emit stackChanged(); }
+    /// Añade al historial una operación propia. Con alreadyDone=true la acción
+    /// ya se ha aplicado y solo se registra (el primer redo no hace nada).
+    void pushLambda(const QString &text, std::function<void()> redo,
+                    std::function<void()> undo, bool alreadyDone = true);
+
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void clear();

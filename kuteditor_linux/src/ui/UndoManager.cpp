@@ -51,6 +51,14 @@ UndoManager::UndoManager(QObject *parent) : QObject(parent) {
           &UndoManager::stackChanged);
 }
 
+void UndoManager::pushLambda(const QString &text, std::function<void()> redo,
+                             std::function<void()> undo, bool alreadyDone)
+{
+  auto *cmd = new LambdaCommand(text, std::move(redo), std::move(undo));
+  cmd->setAlreadyDone(alreadyDone);
+  m_stack.push(cmd);
+}
+
 void UndoManager::undo() { m_stack.undo(); }
 void UndoManager::redo() { m_stack.redo(); }
 void UndoManager::clear() { m_stack.clear(); }

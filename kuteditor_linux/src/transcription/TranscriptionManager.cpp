@@ -1,7 +1,9 @@
 #include "TranscriptionManager.h"
 #include "ui/TrackModel.h"
+#include "TranscriptRemap.h"
 
 #include <QDebug>
+#include <algorithm>
 #include <QDir>
 #include <QFile>
 #include <QStandardPaths>
@@ -599,6 +601,45 @@ void TranscriptionManager::copyToClipboard(const QString &text) const
 {
     qDebug() << "[Transcription] Copiando al portapapeles (" << text.length() << "chars)";
     QGuiApplication::clipboard()->setText(text);
+}
+
+QVector<TranscriptWord> TranscriptionManager::trackWords(int trackIndex) const
+{
+    return m_transcriptions.value(trackIndex).words;
+}
+
+QVector<TranscriptSegment> TranscriptionManager::trackSegments(int trackIndex) const
+{
+    return m_transcriptions.value(trackIndex).segments;
+}
+
+QList<int> TranscriptionManager::transcribedTracks() const
+{
+    QList<int> out;
+    for (auto it = m_transcriptions.constBegin(); it != m_transcriptions.constEnd(); ++it)
+        if (!it->segments.isEmpty() || !it->words.isEmpty()) out.append(it.key());
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+void TranscriptionManager::setTrackTranscription(int trackIndex,
+                                                 const QVector<TranscriptSegment> &segments,
+                                                 const QVector<TranscriptWord> &words)
+{
+    auto &data = m_transcriptions[trackIndex];
+    data.words = words;
+    data.segments = segments;
+    if (data.segments.isEmpty()) {
+        for (const auto &s : TranscriptRemap::sentencesFromWords(words)) {
+            TranscriptSegment seg;
+            seg.startSec = s.startSec; seg.endSec = s.endSec; seg.text = s.text;
+            data.segments.append(seg);
+        }
+    }
+    data.transcribing = false;
+    data.progress = 1.0f;
+    emit transcriptionStateChanged(trackIndex);
+    emit transcriptionFinished(trackIndex);
 }
 
 QJsonArray TranscriptionManager::transcriptionsToJson() const

@@ -196,6 +196,7 @@ set(SOURCES
     src/io/ExportManager.cpp
     src/io/ProjectIO.cpp
     src/transcription/TranscriptionManager.cpp
+    src/transcription/TranscriptEditor.cpp
     src/transcription/WhisperWorker.cpp
     src/transcription/RNNoiseWorker.cpp
 )
@@ -238,6 +239,7 @@ set(HEADERS
     src/io/FileHelper.h
     src/io/ChapterTagger.h
     src/transcription/TranscriptionManager.h
+    src/transcription/TranscriptEditor.h
     src/transcription/WhisperWorker.h
 )
 
@@ -249,6 +251,10 @@ endif()
 add_library(kuttranscript STATIC
     src/transcription/TranscriptWords.cpp
     src/transcription/TranscriptWords.h
+    src/transcription/EditPlanner.cpp
+    src/transcription/EditPlanner.h
+    src/transcription/TranscriptRemap.cpp
+    src/transcription/TranscriptRemap.h
 )
 target_include_directories(kuttranscript PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/src/transcription)
 target_link_libraries(kuttranscript PUBLIC Qt6::Core Qt6::Gui)
@@ -286,6 +292,29 @@ if(KUT_BUILD_TESTS)
     add_executable(test_transcriptwords tests/test_transcriptwords.cpp)
     target_link_libraries(test_transcriptwords PRIVATE kuttranscript Qt6::Test)
     add_test(NAME transcriptwords COMMAND test_transcriptwords)
+
+    add_executable(test_editplanner tests/test_editplanner.cpp)
+    target_link_libraries(test_editplanner PRIVATE kuttranscript Qt6::Test)
+    add_test(NAME editplanner COMMAND test_editplanner)
+
+    add_executable(test_transcriptremap tests/test_transcriptremap.cpp)
+    target_link_libraries(test_transcriptremap PRIVATE kuttranscript Qt6::Test)
+    add_test(NAME transcriptremap COMMAND test_transcriptremap)
+
+    # Integración con los modelos reales (TrackModel, UndoManager, transcripción)
+    set(EDIT_TEST_SOURCES ${SOURCES})
+    list(FILTER EDIT_TEST_SOURCES EXCLUDE REGEX "src/main\\.cpp$")
+    add_executable(test_editintegration tests/test_editintegration.cpp ${EDIT_TEST_SOURCES} ${HEADERS})
+    target_include_directories(test_editintegration PRIVATE $<TARGET_PROPERTY:kuteditor,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(test_editintegration PRIVATE $<TARGET_PROPERTY:kuteditor,COMPILE_DEFINITIONS>)
+    target_link_libraries(test_editintegration PRIVATE $<TARGET_PROPERTY:kuteditor,LINK_LIBRARIES> Qt6::Test)
+    add_test(NAME editintegration COMMAND test_editintegration)
+
+    add_executable(test_editgui tests/test_editgui.cpp ${EDIT_TEST_SOURCES} ${HEADERS})
+    target_include_directories(test_editgui PRIVATE $<TARGET_PROPERTY:kuteditor,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(test_editgui PRIVATE $<TARGET_PROPERTY:kuteditor,COMPILE_DEFINITIONS> SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(test_editgui PRIVATE $<TARGET_PROPERTY:kuteditor,LINK_LIBRARIES> Qt6::Test)
+    add_test(NAME editgui COMMAND test_editgui)
 endif()
 
 # ── Compile GPU mipmap compute shader to .qsb ──
@@ -353,6 +382,7 @@ qt_add_resources(kuteditor "qml_files"
         src/ui/components/OnlineLibrary.qml
         src/ui/components/PublishWindow.qml
         src/ui/components/PluginsDialog.qml
+        src/ui/components/TextEditorWindow.qml
         src/ui/fonts/MaterialSymbolsOutlined-ExtraLight.ttf
 )
 

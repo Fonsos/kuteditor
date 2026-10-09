@@ -127,6 +127,15 @@ public:
     /// mostrar en la barra de estado o bajo el playhead).
     Q_INVOKABLE QString textAtTime(int trackIndex, double timeSec) const;
 
+    // -- Acceso desde C++ (edición por texto) --
+    QVector<TranscriptWord> trackWords(int trackIndex) const;
+    QVector<TranscriptSegment> trackSegments(int trackIndex) const;
+    QList<int> transcribedTracks() const;
+    /// Sustituye la transcripción de una pista (p. ej. tras un corte). Si `segments`
+    /// está vacío se regeneran a partir de las palabras.
+    void setTrackTranscription(int trackIndex, const QVector<TranscriptSegment> &segments,
+                               const QVector<TranscriptWord> &words);
+
     /// Exporta la transcripción como archivo SRT.
     Q_INVOKABLE bool exportSRT(int trackIndex, const QString &filePath) const;
 
