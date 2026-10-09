@@ -94,6 +94,25 @@ Los plugins disponen del servicio `TranscriptEditor` (también context property 
 
 Ejemplo mínimo: `TranscriptEditor.markWhere("^(?:e+h+m*|em+|h?m{2,}h*|um+)$")` y `apply()`.
 
+## Sincronización de pistas
+
+El servicio `TrackSyncer` (también context property) compara dos pistas por la forma de su volumen
+(envolvente a 100 Hz, correlación cruzada por FFT) y recoloca los clips de la segunda:
+
+| Miembro | Descripción |
+|---|---|
+| `analyze(ref, pista)` | Sin tocar nada: `{ok, reliable, offset, confidence, breaks:[{at,delta}], segments:[…], message}` |
+| `apply(ref, pista, force=false)` | Aplica en un solo Deshacer. Con confianza baja no hace nada salvo `force=true` |
+
+Si la referencia tuvo un fallo de grabación (la P4 pierde audio o mete silencio a mitad), el desfase cambia de
+golpe: se detecta por ventanas, se localiza el punto exacto y la pista se parte en tramos — se recorta lo que
+sobra (`delta < 0`) o se deja el hueco (`delta > 0`) —, de modo que sigue la línea de tiempo de la referencia.
+El audio original no se modifica (son clips sobre el mismo archivo). La pista debe ser un único clip.
+
+Plugin de ejemplo: [`examples/plugins/sincronizar-pistas`](../examples/plugins/sincronizar-pistas).
+Flujo con la P4: referencia = pista 3 (la voz del segundo locutor entrando por la P4); pista a sincronizar =
+la grabación propia de ese locutor (pista 2).
+
 ## Plugin nativo (C++)
 
 Una biblioteca compartida que implementa `KutPlugin` (`src/plugins/KutPluginApi.h`, solo cabeceras; no hay que

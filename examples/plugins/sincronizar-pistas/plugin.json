@@ -1,0 +1,12 @@
+{
+  "id": "sincronizar-pistas",
+  "name": "Sincronizar pistas (P4 y grabaciones propias)",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "KutStudio",
+  "description": "Alinea la grabación propia de un locutor con la pista de referencia (p. ej. la pista 3 de la P4). Si la referencia tuvo un fallo de grabación (pierde audio o mete silencio), recorta la pista o deja el hueco para que siga la línea de tiempo de la referencia. Se deshace con un solo Ctrl+Z.",
+  "qml": "Main.qml",
+  "actions": [
+    { "id": "open", "title": "Sincronizar pistas…" }
+  ]
+}

@@ -197,6 +197,7 @@ set(SOURCES
     src/io/ProjectIO.cpp
     src/transcription/TranscriptionManager.cpp
     src/transcription/TranscriptEditor.cpp
+    src/sync/TrackSyncer.cpp
     src/transcription/WhisperWorker.cpp
     src/transcription/RNNoiseWorker.cpp
 )
@@ -240,6 +241,7 @@ set(HEADERS
     src/io/ChapterTagger.h
     src/transcription/TranscriptionManager.h
     src/transcription/TranscriptEditor.h
+    src/sync/TrackSyncer.h
     src/transcription/WhisperWorker.h
 )
 
@@ -255,6 +257,8 @@ add_library(kuttranscript STATIC
     src/transcription/EditPlanner.h
     src/transcription/TranscriptRemap.cpp
     src/transcription/TranscriptRemap.h
+    src/sync/TrackSync.cpp
+    src/sync/TrackSync.h
 )
 target_include_directories(kuttranscript PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/src/transcription)
 target_link_libraries(kuttranscript PUBLIC Qt6::Core Qt6::Gui)
@@ -300,6 +304,10 @@ if(KUT_BUILD_TESTS)
     add_executable(test_transcriptremap tests/test_transcriptremap.cpp)
     target_link_libraries(test_transcriptremap PRIVATE kuttranscript Qt6::Test)
     add_test(NAME transcriptremap COMMAND test_transcriptremap)
+
+    add_executable(test_tracksync tests/test_tracksync.cpp)
+    target_link_libraries(test_tracksync PRIVATE kuttranscript Qt6::Test)
+    add_test(NAME tracksync COMMAND test_tracksync)
 
     # Integración con los modelos reales (TrackModel, UndoManager, transcripción)
     set(EDIT_TEST_SOURCES ${SOURCES})

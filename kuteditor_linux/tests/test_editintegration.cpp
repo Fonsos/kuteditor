@@ -9,6 +9,8 @@
 #include "transcription/TranscriptionManager.h"
 #include "transcription/TranscriptEditor.h"
 #include "plugins/PluginManager.h"
+#include "sync/TrackSyncer.h"
+#include "sync/TrackSync.h"
 #include <QQmlEngine>
 #include <QQmlContext>
 #include <QSettings>
@@ -38,6 +40,40 @@ QString makeWav(const QString &path, double seconds, const QVector<QPair<double,
     ds << quint32(16) << quint16(1) << quint16(2) << quint32(SR) << quint32(SR * 4) << quint16(4) << quint16(16);
     f.write("data"); ds << quint32(pcm.size()); f.write(pcm);
     return path;
+}
+// WAV mono 8 kHz cuyo volumen sigue una envolvente (dB a 100 Hz).
+QString makeWavFromEnv(const QString &path, const QVector<float> &envDb)
+{
+    const int sr = 8000, n = envDb.size() * 80;
+    QByteArray pcm(n * 2, 0);
+    auto *p = reinterpret_cast<qint16 *>(pcm.data());
+    quint32 g = 99;
+    for (int i = 0; i < n; ++i) {
+        g = g * 1664525u + 1013904223u;
+        const double noise = ((g >> 8) / double(1 << 24)) * 2 - 1;
+        p[i] = qint16(noise * std::pow(10.0, envDb[i / 80] / 20.0) * 1.7 * 32767);
+    }
+    QFile f(path); f.open(QIODevice::WriteOnly);
+    QDataStream ds(&f); ds.setByteOrder(QDataStream::LittleEndian);
+    f.write("RIFF"); ds << quint32(36 + pcm.size()); f.write("WAVEfmt ");
+    ds << quint32(16) << quint16(1) << quint16(1) << quint32(sr) << quint32(sr * 2) << quint16(2) << quint16(16);
+    f.write("data"); ds << quint32(pcm.size()); f.write(pcm);
+    return path;
+}
+quint32 sg = 777;
+double srnd() { sg = sg * 1664525u + 1013904223u; return (sg >> 8) / double(1 << 24); }
+QVector<float> speechEnv(double seconds)
+{
+    QVector<float> v; bool talking = true; int left = 0; double level = -25;
+    for (int i = 0; i < int(seconds * 100); ++i) {
+        if (left <= 0) {
+            talking = !talking || srnd() < 0.3;
+            left = int((talking ? 0.3 + 2.5 * srnd() : 0.2 + 1.5 * srnd()) * 100);
+            level = talking ? -22 - 14 * srnd() : -64;
+        }
+        --left; v.append(float(level + (srnd() - 0.5) * (talking ? 6 : 3)));
+    }
+    return v;
 }
 TranscriptWord W(double a, double b, const char *t) { TranscriptWord w; w.startSec = a; w.endSec = b; w.text = QString::fromUtf8(t); w.prob = 0.9f; return w; }
 }
@@ -128,6 +164,81 @@ private slots:
         QCOMPARE(trans->trackWords(0).size(), 4);
         QVERIFY(qAbs(trackLen(0) - lenBefore) < 0.02);
         pm.shutdown();
+    }
+    void syncCutsTrackFollowingReferenceGlitch() {
+        // Ref = S retrasada 5 s y con 4 s perdidos en u=125 (fallo de la P4). Pista = S completa.
+        const auto S = speechEnv(300);
+        QVector<float> ref;
+        for (int i = 0; i < 500; ++i) ref.append(-66.f);
+        for (int i = 0; i < S.size(); ++i) { const int u = i + 500; if (u >= 12500 && u < 12900) continue; ref.append(S[i]); }
+        delete ed; delete trans; delete um; delete tm;
+        tm = new TrackModel(this); um = new UndoManager(this); trans = new TranscriptionManager(this);
+        ed = new TranscriptEditor(this);
+        um->setTrackModel(tm); trans->setTrackModel(tm);
+        tm->addTrack("P4"); tm->addTrack("Local");
+        QVERIFY(tm->importAudioFile(0, makeWavFromEnv(dir.filePath("ref.wav"), ref), 0));
+        QVERIFY(tm->importAudioFile(1, makeWavFromEnv(dir.filePath("loc.wav"), S), 0));
+        QTRY_VERIFY_WITH_TIMEOUT(!tm->clipsOf(0).isEmpty() && !tm->clipsOf(1).isEmpty(), 20000);
+        QTest::qWait(300);
+        TrackSyncer syncer; syncer.setModels(tm, um);
+        // la importación es asíncrona: esperar a que haya audio real en las dos pistas
+        auto ready = [&]() {
+            // readMixSegment no usa la caché aplanada: sirve para saber si ya hay audio cargado
+            for (int t = 0; t < 2; ++t) {
+                QVector<float> buf(2 * 4800);
+                tm->readMixSegment(t, qint64(48000) * 100, 4800, buf.data());
+                double e = 0;
+                for (float v : buf) e += std::abs(v);
+                if (e == 0) return false;
+            }
+            return true;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(ready(), 60000);
+
+        const auto a = syncer.analyze(0, 1);
+        QVERIFY2(a["ok"].toBool() && a["reliable"].toBool(), qPrintable(a["message"].toString() + " conf=" + a["confidence"].toString() + " off=" + a["offset"].toString()));
+        QCOMPARE(a["breaks"].toList().size(), 1);
+        // …y lo mismo desde el plugin QML (ventana «Sincronizar pistas»)
+        QStandardPaths::setTestModeEnabled(true);
+        QSettings().clear();
+        qputenv("KUTEDITOR_PLUGIN_PATH", SRC_DIR "/../examples/plugins");
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("TrackSyncer", &syncer);
+        engine.rootContext()->setContextProperty("TrackModel", tm);
+        PluginManager pm; pm.setEngine(&engine);
+        QVERIFY(pm.scan() >= 1);
+        QVERIFY(pm.setEnabled("sincronizar-pistas", true));
+        QCOMPARE(pm.statusOf("sincronizar-pistas"), QString("active"));
+        pm.triggerAction("sincronizar-pistas", "open");
+        QWindow *win = nullptr;
+        for (QWindow *w : QGuiApplication::allWindows())
+            if (w->title() == "Sincronizar pistas") win = w;
+        QVERIFY(win);
+        win->setProperty("refIdx", 0); win->setProperty("trkIdx", 1);
+        QVERIFY(QMetaObject::invokeMethod(win, "analyze"));
+        QVERIFY2(win->property("report").toString().contains("1 salto"), qPrintable(win->property("report").toString()));
+        QVERIFY(QMetaObject::invokeMethod(win, "sync", Q_ARG(QVariant, false)));
+        QCOMPARE(tm->clipsOf(1).size(), 2);
+        pm.shutdown();
+        const auto res = a;   // análisis previo (sin aplicar)
+        Q_UNUSED(res);
+        // Tras alinear, las dos pistas casan en todo el tramo (sin saltos y con desfase ~0)
+        double d1 = 0, d2 = 0; int f, c, s1, s2;
+        double dummy; Q_UNUSED(dummy);
+        const float *p1 = tm->trackSamplesData(0, &f, &c, &s1);
+        const auto e1 = TrackSync::envelopeDb(p1, f, c, s1);
+        const float *p2 = tm->trackSamplesData(1, &f, &c, &s2);
+        const auto e2 = TrackSync::envelopeDb(p2, f, c, s2);
+        Q_UNUSED(d1); Q_UNUSED(d2);
+        const auto again = TrackSync::analyze(e1, e2, double(e2.size()) / 100);
+        QCOMPARE(again.breaks.size(), 0);
+        QVERIFY2(qAbs(again.globalOffset) < 0.03, qPrintable(QString::number(again.globalOffset)));
+        // Deshacer devuelve el clip original
+        um->undo();
+        QCOMPARE(tm->clipsOf(1).size(), 1);
+        QVERIFY(qAbs(tm->clipSnapshot(1, 0)["startSec"].toDouble()) < 1e-6);
+        um->redo();
+        QCOMPARE(tm->clipsOf(1).size(), 2);
     }
     void overlappingSpeechIsMutedNotCut() {
         // A dice «um» (4.2-4.5) mientras B habla (4.0-5.0): se silencia en A, el episodio no se acorta.
