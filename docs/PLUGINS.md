@@ -90,7 +90,9 @@ Los plugins disponen del servicio `TranscriptEditor` (también context property 
 | `preview()` | `{cuts, mutes, savedSec, deletedWords}` sin tocar nada |
 | `apply()` | Aplica; devuelve los segundos ahorrados (−1 si no había nada) |
 
-Ejemplo (un plugin de muletillas): `TranscriptEditor.markWhere("^(?:e+h+m*|em+|h?m{2,}h*|um+)$")` y `apply()`.
+`requestOpen()` abre la ventana de edición por texto. Plugin real de ejemplo: [`examples/plugins/limpiar-habla`](../examples/plugins/limpiar-habla) (muletillas y pausas; «Marcar y revisar» o «Marcar y aplicar»).
+
+Ejemplo mínimo: `TranscriptEditor.markWhere("^(?:e+h+m*|em+|h?m{2,}h*|um+)$")` y `apply()`.
 
 ## Plugin nativo (C++)
 

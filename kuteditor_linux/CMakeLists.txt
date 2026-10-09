@@ -306,7 +306,7 @@ if(KUT_BUILD_TESTS)
     list(FILTER EDIT_TEST_SOURCES EXCLUDE REGEX "src/main\\.cpp$")
     add_executable(test_editintegration tests/test_editintegration.cpp ${EDIT_TEST_SOURCES} ${HEADERS})
     target_include_directories(test_editintegration PRIVATE $<TARGET_PROPERTY:kuteditor,INCLUDE_DIRECTORIES>)
-    target_compile_definitions(test_editintegration PRIVATE $<TARGET_PROPERTY:kuteditor,COMPILE_DEFINITIONS>)
+    target_compile_definitions(test_editintegration PRIVATE $<TARGET_PROPERTY:kuteditor,COMPILE_DEFINITIONS> SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(test_editintegration PRIVATE $<TARGET_PROPERTY:kuteditor,LINK_LIBRARIES> Qt6::Test)
     add_test(NAME editintegration COMMAND test_editintegration)
 

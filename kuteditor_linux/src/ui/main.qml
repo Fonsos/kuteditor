@@ -4732,6 +4732,10 @@ ApplicationWindow {
     TextEditorWindow {
         id: textEditorWindow
     }
+    Connections {
+        target: TranscriptEditor
+        function onOpenRequested() { textEditorWindow.open() }
+    }
 
     Window {
         id: recoveryDialog

@@ -67,6 +67,9 @@ public:
     /// o -1 si no había nada que hacer.
     Q_INVOKABLE double apply();
 
+    /// Pide a la interfaz que abra la ventana «Editar por texto» (la usan los plugins).
+    Q_INVOKABLE void requestOpen() { emit openRequested(); }
+
     /// Calcula el plan a partir de palabras ya preparadas (para pruebas y plugins).
     EditPlan buildPlan() const;
 
@@ -75,6 +78,7 @@ signals:
     void marksChanged();
     void optionsChanged();
     void applied(double savedSec);
+    void openRequested();
 
 private:
     struct Entry { int track = 0; int idx = 0; double start = 0, end = 0; QString text; bool marked = false; };

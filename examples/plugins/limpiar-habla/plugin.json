@@ -1,0 +1,12 @@
+{
+  "id": "limpiar-habla",
+  "name": "Limpiar habla (muletillas y pausas)",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "KutStudio",
+  "description": "Marca las muletillas («eeeh», «mmm»…) y, si quieres, acorta las pausas largas, usando la edición por texto. Puedes revisar lo marcado antes de aplicarlo y se deshace con un solo Ctrl+Z.",
+  "qml": "Main.qml",
+  "actions": [
+    { "id": "open", "title": "Limpiar muletillas y pausas…" }
+  ]
+}

@@ -8,6 +8,13 @@
 #include "ui/UndoManager.h"
 #include "transcription/TranscriptionManager.h"
 #include "transcription/TranscriptEditor.h"
+#include "plugins/PluginManager.h"
+#include <QQmlEngine>
+#include <QQmlContext>
+#include <QSettings>
+#include <QStandardPaths>
+#include <QGuiApplication>
+#include <QWindow>
 
 namespace {
 const int SR = 48000;
@@ -91,6 +98,36 @@ private slots:
         um->redo();
         QVERIFY(qAbs(trackLen(0) - (lenBefore - saved)) < 0.02);
         QCOMPARE(trans->trackWords(0).size(), 2);
+    }
+    void fillerPluginMarksAndApplies() {
+        QStandardPaths::setTestModeEnabled(true);
+        QSettings().clear();
+        qputenv("KUTEDITOR_PLUGIN_PATH", SRC_DIR "/../examples/plugins");
+        setup({{0, 1.0}, {1.2, 1.6}, {1.8, 3.0}, {3.4, 3.8}}, {{5.0, 6.0}});
+        trans->setTrackTranscription(0, {}, {W(0,1,"hola"), W(1.2,1.6,"eeeh,"), W(1.8,3.0,"mundo"), W(3.4,3.8,"pues")});
+        trans->setTrackTranscription(1, {}, {W(5,6,"vale")});
+        ed->refresh();
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("TranscriptEditor", ed);
+        PluginManager pm; pm.setEngine(&engine);
+        pm.registerService("TranscriptEditor", ed);
+        QVERIFY(pm.scan() >= 1);
+        QVERIFY(pm.setEnabled("limpiar-habla", true));
+        QCOMPARE(pm.statusOf("limpiar-habla"), QString("active"));
+        QWindow *win = nullptr;
+        for (QWindow *w : QGuiApplication::allWindows())
+            if (w->title() == "Limpiar muletillas y pausas") win = w;
+        QVERIFY(win);
+        const double lenBefore = trackLen(0);
+        QVERIFY(QMetaObject::invokeMethod(win, "run", Q_ARG(QVariant, true)));
+        // «eeeh,» fuera; «pues» se queda (no estaba en la lista extra)
+        QCOMPARE(trans->trackWords(0).size(), 3);
+        QCOMPARE(trans->trackWords(0)[0].text, QString("hola"));
+        QVERIFY(trackLen(0) < lenBefore - 0.3);
+        um->undo();
+        QCOMPARE(trans->trackWords(0).size(), 4);
+        QVERIFY(qAbs(trackLen(0) - lenBefore) < 0.02);
+        pm.shutdown();
     }
     void overlappingSpeechIsMutedNotCut() {
         // A dice «um» (4.2-4.5) mientras B habla (4.0-5.0): se silencia en A, el episodio no se acorta.
