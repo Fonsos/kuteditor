@@ -2,6 +2,9 @@
 #include "TrackSync.h"
 #include "ui/TrackModel.h"
 #include "ui/UndoManager.h"
+#include "ui/AppBusy.h"
+#include <QPointer>
+#include <QtConcurrent>
 
 #include <algorithm>
 #include <cmath>
@@ -17,25 +20,77 @@ QVector<float> trackEnvelope(const TrackModel *tm, int i, double *durSec)
 }
 }
 
+struct TrackSyncer::Computed {
+    bool valid = false;
+    QString error;
+    TrackSync::SyncResult r;
+    double trkDur = 0;
+};
+
 QVariantMap TrackSyncer::analyze(int refTrack, int track) { return run(refTrack, track, false, false); }
 QVariantMap TrackSyncer::apply(int refTrack, int track, bool force) { return run(refTrack, track, true, force); }
+void TrackSyncer::analyzeAsync(int refTrack, int track) { runAsync(refTrack, track, false, false); }
+void TrackSyncer::applyAsync(int refTrack, int track, bool force) { runAsync(refTrack, track, true, force); }
+
+static TrackSyncer::Computed computeSync(const TrackModel *tm, int ref, int track)
+{
+    TrackSyncer::Computed c;
+    if (ref == track || ref < 0 || track < 0 || ref >= tm->count() || track >= tm->count()) {
+        c.error = QObject::tr("Elige dos pistas distintas.");
+        return c;
+    }
+    double refDur = 0;
+    const QVector<float> envRef = trackEnvelope(tm, ref, &refDur);
+    const QVector<float> envTrk = trackEnvelope(tm, track, &c.trkDur);
+    if (envRef.size() < 3000 || envTrk.size() < 3000) {
+        c.error = QObject::tr("Hace falta al menos 30 s de audio en las dos pistas.");
+        return c;
+    }
+    c.r = TrackSync::analyze(envRef, envTrk, c.trkDur);
+    c.valid = true;
+    return c;
+}
 
 QVariantMap TrackSyncer::run(int ref, int track, bool doApply, bool force)
 {
+    if (!m_tracks || !m_undo) return QVariantMap{{"ok", false}, {"applied", false}, {"message", tr("Editor no inicializado.")}};
+    return finish(computeSync(m_tracks, ref, track), ref, track, doApply, force);
+}
+
+void TrackSyncer::runAsync(int ref, int track, bool doApply, bool force)
+{
+    if (!m_tracks || !m_undo || m_working) {
+        emit finished(QVariantMap{{"ok", false}, {"applied", false},
+            {"message", m_working ? tr("Ya hay una sincronización en curso.") : tr("Editor no inicializado.")}});
+        return;
+    }
+    m_working = true; emit busyChanged();
+    if (m_busy) m_busy->begin(doApply ? tr("Sincronizando pistas… (puede tardar un poco con audio largo)")
+                                       : tr("Analizando pistas…"), true);
+    QPointer<TrackSyncer> weak(this);
+    const TrackModel *tm = m_tracks;
+    (void) QtConcurrent::run([weak, tm, ref, track, doApply, force]() {
+        Computed c = computeSync(tm, ref, track);
+        QMetaObject::invokeMethod(weak.data(), [weak, c, ref, track, doApply, force]() {
+            if (!weak) return;
+            const QVariantMap res = weak->finish(c, ref, track, doApply, force);
+            weak->m_working = false;
+            if (weak->m_busy) weak->m_busy->end();
+            emit weak->busyChanged();
+            emit weak->finished(res);
+        }, Qt::QueuedConnection);
+    });
+}
+
+QVariantMap TrackSyncer::finish(const Computed &c, int ref, int track, bool doApply, bool force)
+{
+    Q_UNUSED(ref);
     QVariantMap out;
     out["ok"] = false; out["applied"] = false;
     auto fail = [&](const QString &m) { out["message"] = m; return out; };
-    if (!m_tracks || !m_undo) return fail(tr("Editor no inicializado."));
-    if (ref == track || ref < 0 || track < 0 || ref >= m_tracks->count() || track >= m_tracks->count())
-        return fail(tr("Elige dos pistas distintas."));
-
-    double refDur = 0, trkDur = 0;
-    const QVector<float> envRef = trackEnvelope(m_tracks, ref, &refDur);
-    const QVector<float> envTrk = trackEnvelope(m_tracks, track, &trkDur);
-    if (envRef.size() < 3000 || envTrk.size() < 3000)
-        return fail(tr("Hace falta al menos 30 s de audio en las dos pistas."));
-
-    const TrackSync::SyncResult r = TrackSync::analyze(envRef, envTrk, trkDur);
+    if (!c.valid) return fail(c.error);
+    const TrackSync::SyncResult &r = c.r;
+    const double trkDur = c.trkDur; Q_UNUSED(trkDur);
     out["reliable"] = r.reliable; out["offset"] = r.globalOffset; out["confidence"] = r.confidence;
     out["windows"] = r.windows;
     QVariantList br, sg;

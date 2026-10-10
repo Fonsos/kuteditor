@@ -309,6 +309,10 @@ public:
   Q_INVOKABLE bool isSourceRecording(int trackIndex, int sourceIdx) const;
   Q_INVOKABLE void stopRecoveryWorker();
 
+  /// Vuelve a analizar el audio de las pistas (picos de la forma de onda y mipmap)
+  /// en segundo plano. trackIndex < 0 = todas. Al terminar emite audioReanalyzed.
+  Q_INVOKABLE void reanalyzeAudio(int trackIndex = -1);
+
   /// Copia del buffer de samples de un source concreto de una pista.
   /// Thread-safe (toma el mutex).
   QVector<float> trackSourceSamples(int trackIndex, int sourceIdx,
@@ -484,6 +488,9 @@ signals:
   void trackDeviceChanged(int index, const QString &deviceId);
   void trackArmedChanged(int index, bool armed);
   void trackPeaksUpdated(int index);
+  /// Fin de reanalyzeAudio: fuentes analizadas, fuentes sin sonido (todo ceros)
+  /// y pistas/fuentes sin audio (clips sin datos).
+  void audioReanalyzed(int analyzed, int silent, int missing);
   void trackLevelsChanged();
   /// Emitida cuando la estructura de clips de una pista cambia (split,
   /// delete, move, ...). La UI la usa para repopular el Repeater.

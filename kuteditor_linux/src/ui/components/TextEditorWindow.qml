@@ -95,14 +95,14 @@ Window {
         view.deselect()
     }
 
-    function doApply() {
-        const saved = TranscriptEditor.apply()
-        resultMessage = saved < 0 ? qsTr("No hay nada que aplicar.")
-                                  : qsTr("Hecho: el episodio se acorta %1 s. Puedes deshacerlo con Ctrl+Z.").arg(saved.toFixed(1))
-    }
+    function doApply() { TranscriptEditor.applyAsync() }
 
     Connections {
         target: TranscriptEditor
+        function onApplied(saved) {
+            win.resultMessage = saved < 0 ? qsTr("No hay nada que aplicar.")
+                                          : qsTr("Hecho: el episodio se acorta %1 s. Puedes deshacerlo con Ctrl+Z.").arg(saved.toFixed(1))
+        }
         function onWordsChanged() { win.rebuild() }
         function onMarksChanged() { win.rebuild() }
     }

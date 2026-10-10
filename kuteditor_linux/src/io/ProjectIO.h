@@ -39,6 +39,7 @@ public:
 
     void setTrackModel(TrackModel *m) { m_trackModel = m; }
     void setTranscriptionManager(TranscriptionManager *t) { m_transcription = t; }
+    void setBusy(class AppBusy *b) { m_busy = b; }
     void setChapterModel(class ChapterModel *c) { m_chapterModel = c; }
 
     QString currentPath() const { return m_currentPath; }
@@ -85,7 +86,10 @@ private:
     QPointer<TranscriptionManager> m_transcription = nullptr;
     QPointer<ChapterModel> m_chapterModel = nullptr;
     QString m_currentPath;
+    bool saveImpl(const QString &path);
+    bool openImpl(const QString &path);
     QString m_lastError;
+    class AppBusy *m_busy = nullptr;
     QVariantMap m_metadata;
     bool m_dirty = false;
     bool m_suspendDirty = false;

@@ -234,6 +234,7 @@ set(HEADERS
     src/ui/TrackModel.h
     src/ui/ChapterModel.h
     src/ui/UndoManager.h
+    src/ui/AppBusy.h
     src/ui/WaveformItem.h
     src/io/ExportManager.h
     src/io/ProjectIO.h

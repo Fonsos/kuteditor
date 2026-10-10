@@ -19,6 +19,7 @@
 class TrackModel;
 class UndoManager;
 class TranscriptionManager;
+class AppBusy;
 
 class TranscriptEditor : public QObject
 {
@@ -31,7 +32,7 @@ class TranscriptEditor : public QObject
 public:
     explicit TranscriptEditor(QObject *parent = nullptr);
 
-    void setModels(TrackModel *tracks, UndoManager *undo, TranscriptionManager *tr);
+    void setModels(TrackModel *tracks, UndoManager *undo, TranscriptionManager *tr, AppBusy *busy = nullptr);
 
     int wordCount() const { return m_words.size(); }
     int markedCount() const;
@@ -67,6 +68,10 @@ public:
     /// o -1 si no había nada que hacer.
     Q_INVOKABLE double apply();
 
+    /// Igual que apply() pero el cálculo pesado (analizar el audio) va en segundo plano y se
+    /// muestra el aviso «Aplicando cortes…». Al terminar emite applied(savedSec) (−1 si no había nada).
+    Q_INVOKABLE void applyAsync();
+
     /// Pide a la interfaz que abra la ventana «Editar por texto» (la usan los plugins).
     Q_INVOKABLE void requestOpen() { emit openRequested(); }
 
@@ -83,6 +88,8 @@ signals:
 private:
     struct Entry { int track = 0; int idx = 0; double start = 0, end = 0; QString text; bool marked = false; };
     QMap<int, EnergyEnvelope> envelopes() const;
+    AppBusy *m_busy = nullptr;
+    bool m_applying = false;
     void applyTo(const EditPlan &plan);
     QString trackName(int t) const;
 

@@ -785,6 +785,83 @@ void TrackModel::rebuildFlatCache(const Track &t) const {
   t.flatCacheValid = true;
 }
 
+void TrackModel::reanalyzeAudio(int trackIndex) {
+  struct Job {
+    int track = 0, src = 0, ch = 2, sr = 48000;
+    std::shared_ptr<QVector<float>> heap;
+    std::shared_ptr<MmapAudioBuffer> mm;
+  };
+  QVector<Job> jobs;
+  int missing = 0;
+  {
+    QMutexLocker lock(&m_bufMutex);
+    const int from = trackIndex < 0 ? 0 : trackIndex;
+    const int to = trackIndex < 0 ? m_tracks.size() - 1 : trackIndex;
+    for (int ti = from; ti <= to && ti < m_tracks.size(); ++ti) {
+      const Track &t = m_tracks[ti];
+      if (!t.clips.isEmpty() && t.sources.isEmpty()) ++missing;
+      for (int si = 0; si < t.sources.size(); ++si) {
+        const AudioSource &s = t.sources[si];
+        Job j;
+        j.track = ti; j.src = si; j.ch = s.channels; j.sr = s.sampleRate;
+        j.heap = s.samples;
+        if (s.isMmapped()) j.mm = s.mmapBuffer;
+        jobs.append(j);
+      }
+    }
+  }
+
+  QPointer<TrackModel> weak(this);
+  (void) QtConcurrent::run([weak, jobs, missing]() mutable {
+    int analyzed = 0, silent = 0;
+    QSet<int> touched;
+    for (const Job &j : jobs) {
+      if (!weak) return;
+      const float *data = j.mm ? j.mm->constData() : (j.heap ? j.heap->constData() : nullptr);
+      const qint64 floats = j.mm ? qint64(j.mm->size()) : (j.heap ? qint64(j.heap->size()) : 0);
+      if (!data || floats <= 0 || j.ch <= 0) { ++missing; continue; }
+      const qint64 frames = floats / j.ch;
+      QVector<float> peaks(int((frames + PEAK_WINDOW_FRAMES - 1) / PEAK_WINDOW_FRAMES));
+      float maxAll = 0.0f;
+      for (qint64 w = 0; w < peaks.size(); ++w) {
+        const qint64 a = w * PEAK_WINDOW_FRAMES, b = std::min<qint64>(a + PEAK_WINDOW_FRAMES, frames);
+        float m = 0.0f;
+        for (qint64 i = a * j.ch; i < b * j.ch; ++i) m = std::max(m, std::fabs(data[i]));
+        peaks[int(w)] = std::min(1.0f, m);
+        maxAll = std::max(maxAll, m);
+      }
+      auto mip = std::make_shared<AudioMipmap>();
+      if (j.mm) {
+        QVector<float> view; view.resize(floats);
+        std::memcpy(view.data(), data, size_t(floats) * sizeof(float));
+        mip->loadFromVector(view, j.ch, j.sr);
+      } else {
+        mip->loadFromVector(*j.heap, j.ch, j.sr);
+      }
+      if (!weak) return;
+      {
+        QMutexLocker lock(&weak->m_bufMutex);
+        if (j.track < weak->m_tracks.size() && j.src < weak->m_tracks[j.track].sources.size()) {
+          AudioSource &s = weak->m_tracks[j.track].sources[j.src];
+          if (s.samples == j.heap) {      // sigue siendo el mismo audio
+            s.peaks = peaks;
+            s.mipmap = mip;
+            weak->invalidateFlatCache(weak->m_tracks[j.track]);
+            touched.insert(j.track);
+          }
+        }
+      }
+      ++analyzed;
+      if (maxAll < 1e-6f) ++silent;
+    }
+    QMetaObject::invokeMethod(weak.data(), [weak, analyzed, silent, missing, touched]() {
+      if (!weak) return;
+      for (int t : touched) { emit weak->trackPeaksUpdated(t); emit weak->clipsChanged(t); }
+      emit weak->audioReanalyzed(analyzed, silent, missing);
+    }, Qt::QueuedConnection);
+  });
+}
+
 void TrackModel::updateSourcePeaksInRange(AudioSource &src, qint64 fromFrame,
                                           qint64 toFrame) {
   if (src.channels <= 0)
@@ -2502,6 +2579,14 @@ QVector<float> TrackModel::trackSourceSamples(int trackIndex, int sourceIdx,
     *outSampleRate = src.sampleRate;
   if (outChannels)
     *outChannels = src.channels;
+  // Los sources largos (>30 s) viven en un mmap, no en el vector del heap: devolver
+  // samplesVec() daría un vector vacío y el guardado omitiría el audio de la pista.
+  if (src.isMmapped()) {
+    const qint64 n = src.samplesSize();
+    QVector<float> copy(n);
+    std::memcpy(copy.data(), src.samplesConstData(), size_t(n) * sizeof(float));
+    return copy;
+  }
   return src.samplesVec();
 }
 

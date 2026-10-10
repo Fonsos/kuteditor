@@ -46,11 +46,12 @@ Window {
         return t
     }
 
-    function analyze() { report = fmt(TrackSyncer.analyze(refIdx, trkIdx)) }
-    function sync(force) {
-        const r = TrackSyncer.apply(refIdx, trkIdx, force === true)
-        report = fmt(r)
-        host.log(r.message)
+    // Tareas en segundo plano: el aviso global («Sincronizando pistas…») bloquea la edición mientras tanto
+    function analyze() { report = qsTr("Analizando las pistas…"); TrackSyncer.analyzeAsync(refIdx, trkIdx) }
+    function sync(force) { report = qsTr("Sincronizando las pistas… (puede tardar un poco con audio largo)"); TrackSyncer.applyAsync(refIdx, trkIdx, force === true) }
+    Connections {
+        target: TrackSyncer
+        function onFinished(r) { win.report = win.fmt(r); host.log(r.message) }
     }
 
     function onAction(id) { if (id === "open") { refreshNames(); win.visible = true; win.raise() } }
@@ -81,8 +82,9 @@ Window {
         RowLayout {
             Layout.alignment: Qt.AlignRight
             spacing: 8
-            Button { text: qsTr("Analizar"); onClicked: win.analyze() }
-            Button { text: qsTr("Sincronizar"); highlighted: true; onClicked: win.sync(false) }
+            BusyIndicator { running: TrackSyncer.busy; visible: TrackSyncer.busy; implicitWidth: 28; implicitHeight: 28 }
+            Button { text: qsTr("Analizar"); enabled: !TrackSyncer.busy; onClicked: win.analyze() }
+            Button { text: qsTr("Sincronizar"); highlighted: true; enabled: !TrackSyncer.busy; onClicked: win.sync(false) }
         }
     }
 }

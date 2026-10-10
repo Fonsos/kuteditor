@@ -3,6 +3,9 @@
 #include "TranscriptionManager.h"
 #include "ui/TrackModel.h"
 #include "ui/UndoManager.h"
+#include "ui/AppBusy.h"
+#include <QPointer>
+#include <QtConcurrent>
 
 #include <QJsonArray>
 #include <QRegularExpression>
@@ -12,9 +15,9 @@
 
 TranscriptEditor::TranscriptEditor(QObject *parent) : QObject(parent) {}
 
-void TranscriptEditor::setModels(TrackModel *tracks, UndoManager *undo, TranscriptionManager *tr)
+void TranscriptEditor::setModels(TrackModel *tracks, UndoManager *undo, TranscriptionManager *tr, AppBusy *busy)
 {
-    m_tracks = tracks; m_undo = undo; m_tr = tr;
+    m_tracks = tracks; m_undo = undo; m_tr = tr; m_busy = busy;
     if (m_tr) {
         connect(m_tr, &TranscriptionManager::transcriptionFinished, this, [this](int) { refresh(); });
     }
@@ -203,6 +206,30 @@ double TranscriptEditor::apply()
     const double saved = plan.savedSec();
     emit applied(saved);
     return saved;
+}
+
+void TranscriptEditor::applyAsync()
+{
+    if (!m_tracks || !m_undo || !m_tr || m_applying) { emit applied(-1); return; }
+    m_applying = true;
+    if (m_busy) m_busy->begin(tr("Aplicando cortes… (analizando el audio)"), true);
+    QPointer<TranscriptEditor> weak(this);
+    // buildPlan() solo lee: la interfaz está bloqueada por el aviso mientras tanto
+    (void) QtConcurrent::run([weak]() {
+        if (!weak) return;
+        const EditPlan plan = weak->buildPlan();
+        QMetaObject::invokeMethod(weak.data(), [weak, plan]() {
+            if (!weak) return;
+            double saved = -1;
+            if (!plan.cuts.isEmpty() || !plan.mutes.isEmpty()) {
+                weak->applyTo(plan);
+                saved = plan.savedSec();
+            }
+            weak->m_applying = false;
+            if (weak->m_busy) weak->m_busy->end();
+            emit weak->applied(saved);
+        }, Qt::QueuedConnection);
+    });
 }
 
 void TranscriptEditor::applyTo(const EditPlan &plan)

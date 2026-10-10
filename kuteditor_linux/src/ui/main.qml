@@ -250,6 +250,24 @@ ApplicationWindow {
         }
     }
 
+    property bool analyzingAudio: false
+    function analyzeAudio() {
+        analyzingAudio = true
+        AppBusy.begin(qsTr("Analizando el audio de las pistas… (con audio largo puede tardar)"), true)
+        TrackModel.reanalyzeAudio(root.selectedTracks.length === 1 ? root.selectedTracks[0] : -1)
+    }
+    Connections {
+        target: TrackModel
+        function onAudioReanalyzed(analyzed, silent, missing) {
+            root.analyzingAudio = false
+            AppBusy.end()
+            let m = qsTr("Análisis terminado: %1 fuente(s) de audio analizadas.").arg(analyzed)
+            if (silent > 0) m += "\n" + qsTr("%1 no contiene sonido (todo silencio).").arg(silent)
+            if (missing > 0) m += "\n" + qsTr("%1 pista(s)/fuente(s) tienen clips pero ningún audio: hay que volver a importar el archivo original.").arg(missing)
+            infoDialog.message = m
+            infoDialog.open()
+        }
+    }
     property color accent:   "#e74c3c"
     property color panelBg:  "#2a2d31"
     property color panelBg2: "#34383d"
@@ -2247,6 +2265,11 @@ ApplicationWindow {
                         onTriggered: transcriptionSettingsDialog.open()
                     }
                     Platform.MenuItem {
+                        text: qsTr("Analizar audio de las pistas")
+                        enabled: TrackModel.count > 0 && !root.analyzingAudio
+                        onTriggered: root.analyzeAudio()
+                    }
+                    Platform.MenuItem {
                         text: qsTr("Editar por texto…")
                         onTriggered: textEditorWindow.open()
                     }
@@ -2467,6 +2490,11 @@ ApplicationWindow {
                 onTriggered: transcriptionSettingsDialog.open()
             }
             IntegratedMenuItem {
+                text: qsTr("Analizar audio de las pistas")
+                enabled: TrackModel.count > 0 && !root.analyzingAudio
+                onTriggered: root.analyzeAudio()
+            }
+            IntegratedMenuItem {
                 text: qsTr("Editar por texto…")
                 onTriggered: textEditorWindow.open()
             }
@@ -2645,6 +2673,19 @@ ApplicationWindow {
             ToolBtn { ico: Icons.zoomIn; tip: qsTr("Zoom In (Ctrl++)"); onClicked: root.zoomIn() }
             ToolBtn { ico: Icons.zoomOut; tip: qsTr("Zoom Out (Ctrl+-)"); onClicked: root.zoomOut() }
             ToolBtn { ico: Icons.zoomFit; tip: qsTr("Ver todo el proyecto (Ctrl+0)"); onClicked: root.zoomToFit() }
+
+            Rectangle { width: 1; height: 24; color: root.divider }
+
+            // --- Análisis de audio ---
+            ToolBtn {
+                id: analyzeBtn
+                ico: Icons.analyze
+                tip: root.selectedTracks.length > 0
+                     ? qsTr("Analizar el audio de las pistas seleccionadas (rehace la forma de onda)")
+                     : qsTr("Analizar el audio de todas las pistas (rehace la forma de onda)")
+                enabled: TrackModel.count > 0 && !root.analyzingAudio
+                onClicked: root.analyzeAudio()
+            }
 
             Rectangle { width: 1; height: 24; color: root.divider }
 
@@ -4731,6 +4772,34 @@ ApplicationWindow {
 
     TextEditorWindow {
         id: textEditorWindow
+    }
+
+    // Aviso global de «trabajando…»: bloquea la edición mientras haya una tarea pesada en curso
+    Popup {
+        id: busyPopup
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        padding: 18
+        background: Rectangle { color: root.panelBg; radius: 8; border.color: root.accent; border.width: 1 }
+        Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.4) }
+        contentItem: Row {
+            spacing: 14
+            BusyIndicator { running: busyPopup.visible; width: 40; height: 40; anchors.verticalCenter: parent.verticalCenter }
+            Label {
+                text: AppBusy.text
+                color: root.textPri
+                font.pixelSize: 14
+                wrapMode: Text.WordWrap
+                width: 340
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+    }
+    Connections {
+        target: AppBusy
+        function onChanged() { if (AppBusy.active) busyPopup.open(); else busyPopup.close() }
     }
     Connections {
         target: TranscriptEditor

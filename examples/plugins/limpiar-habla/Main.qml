@@ -15,6 +15,17 @@ Window {
     // Sonidos de duda: eh, eeeh, ehh, em, mm, mmm, hmm, um, uh…
     readonly property string soundPattern: "e+h+m*|e{2,}h*m*|em+|h?m{2,}h*|hm+|um+|uh+m*"
     property string message: ""
+    property int pendingCount: 0
+
+    Connections {
+        target: TranscriptEditor
+        function onApplied(saved) {
+            if (win.pendingCount < 0) return
+            win.message = saved < 0 ? qsTr("Nada que quitar.")
+                                    : qsTr("Hecho: %1 muletillas quitadas, el episodio se acorta %2 s (Ctrl+Z lo deshace).").arg(win.pendingCount).arg(saved.toFixed(1))
+            win.pendingCount = -1
+        }
+    }
 
     // Expresión final: sonidos + palabras/frases extra (una sola palabra cada una)
     function buildPattern() {
@@ -39,9 +50,9 @@ Window {
         host.setSetting("pauseTenths", pauseSpin.value)
         host.setSetting("sounds", soundsBox.checked)
         if (applyNow) {
-            const saved = TranscriptEditor.apply()
-            message = saved < 0 ? qsTr("Nada que quitar.")
-                                : qsTr("Hecho: %1 muletillas quitadas, el episodio se acorta %2 s (Ctrl+Z lo deshace).").arg(n).arg(saved.toFixed(1))
+            win.pendingCount = n
+            message = qsTr("Aplicando cortes…")
+            TranscriptEditor.applyAsync()      // en segundo plano; el aviso global muestra que está trabajando
         } else {
             message = qsTr("%1 muletillas marcadas. Revísalas en «Editar por texto» y aplica.").arg(n)
             TranscriptEditor.requestOpen()

@@ -1,4 +1,5 @@
 #include "ProjectIO.h"
+#include "ui/AppBusy.h"
 #include "ui/TrackModel.h"
 #include "ui/ChapterModel.h"
 #include "audio/TrackFxChain.h"
@@ -648,6 +649,13 @@ bool ProjectIO::applyProjectJson(const QByteArray &json, const QString &extractD
 // ============================================================================
 bool ProjectIO::save(const QString &path)
 {
+    struct Guard { AppBusy *b; ~Guard() { if (b) b->end(); } } g{m_busy};
+    if (m_busy) m_busy->begin(tr("Guardando proyecto…"), true);
+    return saveImpl(path);
+}
+
+bool ProjectIO::saveImpl(const QString &path)
+{
     if (!m_trackModel) {
         m_lastError = tr("TrackModel no disponible");
         return false;
@@ -782,6 +790,13 @@ bool ProjectIO::save(const QString &path)
 }
 
 bool ProjectIO::open(const QString &path)
+{
+    struct Guard { AppBusy *b; ~Guard() { if (b) b->end(); } } g{m_busy};
+    if (m_busy) m_busy->begin(tr("Abriendo proyecto…"), true);
+    return openImpl(path);
+}
+
+bool ProjectIO::openImpl(const QString &path)
 {
     if (!m_trackModel) {
         m_lastError = tr("TrackModel no disponible");

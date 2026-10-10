@@ -26,6 +26,9 @@ QtObject {
     readonly property string zoomOut:      "zoom_out"
     readonly property string zoomFit:      "fit_screen"
 
+    // --- Toolbar: Análisis de audio ---
+    readonly property string analyze:      "graphic_eq"
+
     // --- Toolbar: Toggle ---
     readonly property string magnet:       "combine_columns" // "text_select_move_back_word" // "compare_arrows" cell_merge
 
