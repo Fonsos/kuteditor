@@ -4797,7 +4797,7 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
-        if (ProjectIO.hasRecoveryProject()) {
+        if (ProjectIO.hasRecoveryProject) {
             recoveryDialog.open()
         }
     }
