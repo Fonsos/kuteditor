@@ -470,6 +470,10 @@ endif()
 install(TARGETS kuteditor DESTINATION bin)
 install(FILES resources/kuteditor.desktop DESTINATION share/applications)
 install(FILES resources/kuteditor.svg DESTINATION share/icons/hicolor/scalable/apps)
+# Plugins de ejemplo: el gestor los encuentra en <prefijo>/share/kuteditor/plugins (siguen desactivados hasta que se activen)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../examples/plugins)
+    install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../examples/plugins/ DESTINATION share/kuteditor/plugins)
+endif()
 
 if(HAVE_DEEPFILTERNET AND DEEPFILTER_LIB)
     install(FILES 
