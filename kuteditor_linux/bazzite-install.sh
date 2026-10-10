@@ -94,6 +94,9 @@ JOBS=$(awk '/MemTotal/ {j=int($2/1024/1024/3); if (j<1) j=1; print j}' /proc/mem
 CORES=$(nproc); [ "$JOBS" -gt "$CORES" ] && JOBS=$CORES
 box "set -e
   export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig:\${PKG_CONFIG_PATH:-}
+  # libjack de pipewire-jack no está en el path del enlazador en Fedora: añadir su carpeta
+  JACKDIR=\$(pkg-config --variable=libdir jack 2>/dev/null || true)
+  [ -n \"\$JACKDIR\" ] && export LIBRARY_PATH=\"\$JACKDIR:\${LIBRARY_PATH:-}\"
   cd '$SRC/kuteditor_linux'
   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
     -DHAVE_WHISPER=$([ "$WHISPER" = 1 ] && echo ON || echo OFF) -DHAVE_KUTPOD=ON
