@@ -90,9 +90,18 @@ else
 fi
 
 echo "==> 5/5 Compilar e instalar (puede tardar varios minutos)"
+# Compilar necesita unos GB temporales (TrackModel.cpp genera un ensamblador enorme) y /tmp puede tener cuota:
+# se usa una carpeta propia en la carpeta personal. Aviso si queda poco espacio.
+BUILD_TMP="$HOME/.cache/kuteditor-build-tmp"; mkdir -p "$BUILD_TMP"
+FREE_MB=$(df -Pm "$HOME" | awk 'NR==2 {print $4}')
+if [ "${FREE_MB:-0}" -lt 4096 ]; then
+  echo "⚠ Solo quedan ${FREE_MB} MB libres en tu carpeta personal; compilar necesita unos 4 GB. Libera espacio y repite." >&2
+  exit 1
+fi
 JOBS=$(awk '/MemTotal/ {j=int($2/1024/1024/3); if (j<1) j=1; print j}' /proc/meminfo)
 CORES=$(nproc); [ "$JOBS" -gt "$CORES" ] && JOBS=$CORES
 box "set -e
+  export TMPDIR='$BUILD_TMP'
   export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig:\${PKG_CONFIG_PATH:-}
   # libjack de pipewire-jack no está en el path del enlazador en Fedora: añadir su carpeta
   JACKDIR=\$(pkg-config --variable=libdir jack 2>/dev/null || true)
