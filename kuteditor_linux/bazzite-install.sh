@@ -43,7 +43,7 @@ command -v distrobox >/dev/null || { echo "No se encuentra distrobox (viene inst
 box() { distrobox enter "$BOX" -- bash -lc "$1"; }
 
 if [ "$UNINSTALL" = 1 ]; then
-  box 'distrobox-export --app kuteditor --delete' 2>/dev/null || true
+  rm -f "$HOME/.local/share/applications/kuteditor-app.desktop" "$HOME/.local/share/icons/kuteditor.svg"
   distrobox rm -f "$BOX" || true
   echo "Listo. El código ($SRC) y tus proyectos no se han tocado."
   exit 0
@@ -102,8 +102,24 @@ box "set -e
     -DHAVE_WHISPER=$([ "$WHISPER" = 1 ] && echo ON || echo OFF) -DHAVE_KUTPOD=ON
   cmake --build build -j$JOBS
   sudo cmake --install build
-  sudo ldconfig
-  distrobox-export --app kuteditor"
+  sudo ldconfig"
+
+# Lanzador en el menú del sistema (distrobox-export no resultó fiable aquí: exportaba el atajo del contenedor)
+mkdir -p "$HOME/.local/share/applications" "$HOME/.local/share/icons"
+cp "$SRC/kuteditor_linux/resources/kuteditor.svg" "$HOME/.local/share/icons/kuteditor.svg"
+cat > "$HOME/.local/share/applications/kuteditor-app.desktop" <<DESK
+[Desktop Entry]
+Type=Application
+Name=KUT Editor
+Comment=Editor de podcasts
+Exec=distrobox enter $BOX -- kuteditor %F
+Icon=$HOME/.local/share/icons/kuteditor.svg
+Terminal=false
+Categories=AudioVideo;Audio;AudioVideoEditing;
+MimeType=application/x-podcastproj;
+StartupWMClass=kuteditor
+DESK
+update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 
 cat <<MSG
 
