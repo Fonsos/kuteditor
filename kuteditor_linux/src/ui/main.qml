@@ -258,12 +258,23 @@ ApplicationWindow {
     }
     Connections {
         target: TrackModel
+        function onImportStarted(fileName) {
+            AppBusy.begin(qsTr("Importando «%1»… (con audio largo puede tardar; no cierres el programa)").arg(fileName), true)
+        }
+        function onImportFinished(fileName, ok, message) {
+            AppBusy.end()
+            if (!ok) {
+                infoDialog.message = qsTr("No se pudo importar «%1».").arg(fileName) + "\n" + message
+                infoDialog.open()
+            }
+        }
         function onAudioReanalyzed(analyzed, silent, missing) {
             root.analyzingAudio = false
             AppBusy.end()
-            let m = qsTr("Análisis terminado: %1 fuente(s) de audio analizadas.").arg(analyzed)
+            let m = analyzed > 0 ? qsTr("Análisis terminado: %1 fuente(s) de audio analizadas.").arg(analyzed)
+                                 : qsTr("No hay audio que analizar.")
             if (silent > 0) m += "\n" + qsTr("%1 no contiene sonido (todo silencio).").arg(silent)
-            if (missing > 0) m += "\n" + qsTr("%1 pista(s)/fuente(s) tienen clips pero ningún audio: hay que volver a importar el archivo original.").arg(missing)
+            if (missing > 0) m += "\n" + qsTr("%1 pista(s)/fuente(s) NO tienen audio (vacías o perdieron su audio): hay que volver a importar el archivo original.").arg(missing)
             infoDialog.message = m
             infoDialog.open()
         }

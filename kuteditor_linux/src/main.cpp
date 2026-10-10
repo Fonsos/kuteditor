@@ -27,6 +27,7 @@
 #include "transcription/TranscriptEditor.h"
 #include "sync/TrackSyncer.h"
 #include "ui/AppBusy.h"
+#include "audio/KutScratch.h"
 #include "net/KutPodClient.h"
 
 #ifndef HAVE_KUTPOD
@@ -84,6 +85,10 @@ int main(int argc, char *argv[])
 
     QCoreApplication::setOrganizationName("Kut");
     QCoreApplication::setApplicationName("KutEditor");
+    {   // restos de ejecuciones anteriores que murieron (temporales de varios GB)
+        const int n = KutScratch::cleanupStale();
+        if (n > 0) qDebug() << "[main] Temporales antiguos eliminados:" << n;
+    }
     QGuiApplication::setDesktopFileName("kuteditor");
 
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/resources/kuteditor.svg")));

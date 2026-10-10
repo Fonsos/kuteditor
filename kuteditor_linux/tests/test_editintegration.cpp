@@ -13,6 +13,7 @@
 #include "ui/ChapterModel.h"
 #include "io/ProjectIO.h"
 #include "ui/AppBusy.h"
+#include "audio/KutScratch.h"
 #include "sync/TrackSync.h"
 #include <QQmlEngine>
 #include <QQmlContext>
@@ -270,6 +271,68 @@ private slots:
         QVERIFY(!t2.clipsOf(0).isEmpty());
         QTRY_VERIFY_WITH_TIMEOUT(energyAt(t2, 30) > 0, 10000);
         QVERIFY(qAbs(energyAt(t2, 30) - energyAt(t1, 30)) < 0.01 * energyAt(t1, 30) + 1e-3);
+    }
+    void importFailureIsReportedNotSilent() {
+        TrackModel t; t.addTrack("X");
+        const QString bad = dir.filePath("roto.wav");
+        { QFile f(bad); QVERIFY(f.open(QIODevice::WriteOnly)); f.write("esto no es audio"); }
+        QSignalSpy started(&t, &TrackModel::importStarted), fin(&t, &TrackModel::importFinished);
+        QVERIFY(t.importAudioFile(0, bad, 0));
+        QCOMPARE(started.count(), 1);
+        QTRY_COMPARE_WITH_TIMEOUT(fin.count(), 1, 30000);
+        QVERIFY(!fin.first().at(1).toBool());
+        QVERIFY2(!fin.first().at(2).toString().isEmpty(), "falta el motivo del fallo");
+        QVERIFY(t.clipsOf(0).isEmpty());
+    }
+    void bigAudioUsesScratchDirAndLeavesNoFiles() {
+        QTemporaryDir scratch;
+        qputenv("KUTEDITOR_SCRATCH", scratch.path().toUtf8());
+        {
+            TrackModel t; t.addTrack("Larga");
+            QSignalSpy fin(&t, &TrackModel::importFinished);
+            QVERIFY(t.importAudioFile(0, makeWavFromEnv(dir.filePath("s.wav"), speechEnv(60)), 0));
+            QTRY_COMPARE_WITH_TIMEOUT(fin.count(), 1, 30000);
+            QVERIFY(fin.first().at(1).toBool());
+            QTest::qWait(300);
+            // el audio está en un mmap (>30 s) pero su archivo ya no tiene nombre: nada que se quede si el programa muere
+            QVERIFY2(QDir(scratch.path()).entryList(QDir::Files).isEmpty(),
+                     qPrintable(QDir(scratch.path()).entryList(QDir::Files).join(",")));
+            QVector<float> buf(2 * 4800);
+            t.readMixSegment(0, qint64(20 * 48000), 4800, buf.data());
+            double e = 0; for (float v : buf) e += std::abs(v);
+            QVERIFY(e > 0);
+        }
+        // restos de un proceso muerto se limpian; los de un proceso vivo no
+        QFile dead(scratch.path() + "/kut_mmap_999999_1.raw"); QVERIFY(dead.open(QIODevice::WriteOnly)); dead.close();
+        const QString mine = QString("%1/kut_mmap_%2_5.raw").arg(scratch.path()).arg(QCoreApplication::applicationPid());
+        QFile alive(mine); QVERIFY(alive.open(QIODevice::WriteOnly)); alive.close();
+        QCOMPARE(KutScratch::cleanupStale(), 1);
+        QVERIFY(!QFile::exists(dead.fileName()));
+        QVERIFY(QFile::exists(mine));
+        qunsetenv("KUTEDITOR_SCRATCH");
+    }
+    void bigFileBenchmark() {
+        // Manual: KUT_BIG_FILE=/ruta/episodio.(wav|mp3|flac) ./test_editintegration bigFileBenchmark
+        const QString f = qEnvironmentVariable("KUT_BIG_FILE");
+        if (f.isEmpty()) QSKIP("define KUT_BIG_FILE para medir un archivo largo");
+        auto hwmMB = []() { QFile st("/proc/self/status"); st.open(QIODevice::ReadOnly);
+            for (const QByteArray &l : st.readAll().split('\n')) if (l.startsWith("VmHWM")) return l.split(':')[1].trimmed().split(' ')[0].toLongLong() / 1024;
+            return qint64(0); };
+        TrackModel t; ProjectIO p; p.setTrackModel(&t);
+        t.addTrack("Episodio");
+        QSignalSpy fin(&t, &TrackModel::importFinished);
+        QElapsedTimer tm; tm.start();
+        QVERIFY(t.importAudioFile(0, f, 0));
+        QTRY_COMPARE_WITH_TIMEOUT(fin.count(), 1, 3600000);
+        const bool ok = fin.first().at(1).toBool();
+        qInfo() << "BENCH importado ok=" << ok << fin.first().at(2).toString() << "en" << tm.elapsed() / 1000.0 << "s, pico RAM" << hwmMB() << "MB";
+        QVERIFY(ok);
+        QTest::qWait(3000);
+        qInfo() << "BENCH tras mipmap: pico RAM" << hwmMB() << "MB, scratch libre" << KutScratch::freeBytes() / (1 << 20) << "MB";
+        tm.restart();
+        QVERIFY2(p.save(QDir::tempPath() + "/bench_big.kutproj"), qPrintable(p.lastError()));
+        qInfo() << "BENCH guardado en" << tm.elapsed() / 1000.0 << "s, pico RAM" << hwmMB() << "MB";
+        QFile::remove(QDir::tempPath() + "/bench_big.kutproj");
     }
     void appBusyCountsNestedTasks() {
         AppBusy b;
