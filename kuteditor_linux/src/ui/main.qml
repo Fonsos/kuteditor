@@ -253,13 +253,14 @@ ApplicationWindow {
     property bool analyzingAudio: false
     function analyzeAudio() {
         analyzingAudio = true
-        AppBusy.begin(qsTr("Analizando el audio de las pistas… (con audio largo puede tardar)"), true)
+        AppBusy.begin(qsTr("Analizando el audio de las pistas… (con audio largo puede tardar)"))
         TrackModel.reanalyzeAudio(root.selectedTracks.length === 1 ? root.selectedTracks[0] : -1)
     }
     Connections {
         target: TrackModel
         function onImportStarted(fileName) {
-            AppBusy.begin(qsTr("Importando «%1»… (con audio largo puede tardar; no cierres el programa)").arg(fileName), true)
+            // sin repintar a la fuerza: se llama desde el gesto de soltar/abrir y la importación va en segundo plano
+            AppBusy.begin(qsTr("Importando «%1»… (con audio largo puede tardar; no cierres el programa)").arg(fileName))
         }
         function onImportFinished(fileName, ok, message) {
             AppBusy.end()
@@ -2348,6 +2349,10 @@ ApplicationWindow {
                 Platform.Menu {
                     title: qsTr("Ay&uda")
                     Platform.MenuItem {
+                        text: qsTr("Abrir carpeta de registros")
+                        onTriggered: CrashLog.openLogDir()
+                    }
+                    Platform.MenuItem {
                         text: qsTr("Acerca de Kut Editor…")
                         onTriggered: aboutDialog.open()
                     }
@@ -2571,6 +2576,10 @@ ApplicationWindow {
         }
         IntegratedMenu {
             title: qsTr("Ay&uda")
+            IntegratedMenuItem {
+                text: qsTr("Abrir carpeta de registros")
+                onTriggered: CrashLog.openLogDir()
+            }
             IntegratedMenuItem {
                 text: qsTr("Acerca de Kut Editor…")
                 onTriggered: aboutDialog.open()
@@ -4808,9 +4817,12 @@ ApplicationWindow {
             }
         }
     }
+    // El aviso se abre/cierra FUERA del gesto que lo provocó (soltar un archivo, pulsar un botón):
+    // abrir un Popup modal dentro de un onDropped puede cerrar el programa.
+    function syncBusyPopup() { if (AppBusy.active) busyPopup.open(); else busyPopup.close() }
     Connections {
         target: AppBusy
-        function onChanged() { if (AppBusy.active) busyPopup.open(); else busyPopup.close() }
+        function onChanged() { Qt.callLater(root.syncBusyPopup) }
     }
     Connections {
         target: TranscriptEditor
@@ -4877,6 +4889,10 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        if (CrashLog.previousCrashed) {
+            infoDialog.message = qsTr("La sesión anterior terminó de forma inesperada.\nRegistro con los detalles: %1\n(Ayuda → Abrir carpeta de registros)").arg(CrashLog.previousLogPath)
+            infoDialog.open()
+        }
         if (ProjectIO.hasRecoveryProject) {
             recoveryDialog.open()
         }

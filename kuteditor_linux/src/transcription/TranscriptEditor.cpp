@@ -212,7 +212,7 @@ void TranscriptEditor::applyAsync()
 {
     if (!m_tracks || !m_undo || !m_tr || m_applying) { emit applied(-1); return; }
     m_applying = true;
-    if (m_busy) m_busy->begin(tr("Aplicando cortes… (analizando el audio)"), true);
+    if (m_busy) m_busy->begin(tr("Aplicando cortes… (analizando el audio)"));
     QPointer<TranscriptEditor> weak(this);
     // buildPlan() solo lee: la interfaz está bloqueada por el aviso mientras tanto
     (void) QtConcurrent::run([weak]() {

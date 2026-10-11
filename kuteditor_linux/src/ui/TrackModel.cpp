@@ -19,6 +19,7 @@
 #include <QStandardPaths>
 #include <QTemporaryFile>
 #include "audio/KutScratch.h"
+#include "util/CrashLog.h"
 #include <QUrl>
 #include <QVariantMap>
 #include <algorithm>
@@ -4051,6 +4052,8 @@ bool TrackModel::importAudioFile(int trackIndex, const QString &filePath,
 
   QPointer<TrackModel> weakThis(this);
   const QString fileName = QFileInfo(resolvedPath).fileName();
+  qInfo().noquote() << "[Import] Inicio:" << resolvedPath << "(" << QFileInfo(resolvedPath).size() / (1 << 20) << "MB ) |" << CrashLog::memoryLine()
+                    << "| libre en carpeta de trabajo" << KutScratch::freeBytes() / (1 << 20) << "MB";
   emit importStarted(fileName);
 
   (void) QtConcurrent::run([weakThis, trackIndex, resolvedPath, timelineStartSec, fileName]() {
@@ -4059,7 +4062,7 @@ bool TrackModel::importAudioFile(int trackIndex, const QString &filePath,
     QMutexLocker importLock(&importMutex);
 
     auto fail = [&](const QString &reason) {
-      qWarning() << "[Import]" << fileName << ":" << reason;
+      qWarning().noquote() << "[Import] FALLO" << fileName << ":" << reason << "|" << CrashLog::memoryLine();
       if (weakThis)
         QMetaObject::invokeMethod(weakThis.data(), [weakThis, fileName, reason]() {
           if (weakThis) emit weakThis->importFinished(fileName, false, reason);
@@ -4202,6 +4205,7 @@ bool TrackModel::importAudioFile(int trackIndex, const QString &filePath,
         const qint64 tlStart = qint64(std::max(0.0, timelineStartSec) * sr);
         weakThis->addClipRaw(trackIndex, srcIdx, tlStart, 0, frames);
 
+        qInfo().noquote() << "[Import] Fin correcto:" << QFileInfo(resolvedPath).fileName() << "|" << CrashLog::memoryLine();
         emit weakThis->importFinished(QFileInfo(resolvedPath).fileName(), true, QString());
         qDebug() << "[Import] Importado de forma asíncrona:" << QFileInfo(resolvedPath).fileName()
                  << "(" << frames << "frames," << ch << "ch," << sr << "Hz ) en pista"

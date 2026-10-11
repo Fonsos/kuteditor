@@ -66,7 +66,7 @@ void TrackSyncer::runAsync(int ref, int track, bool doApply, bool force)
     }
     m_working = true; emit busyChanged();
     if (m_busy) m_busy->begin(doApply ? tr("Sincronizando pistas… (puede tardar un poco con audio largo)")
-                                       : tr("Analizando pistas…"), true);
+                                       : tr("Analizando pistas…"));
     QPointer<TrackSyncer> weak(this);
     const TrackModel *tm = m_tracks;
     (void) QtConcurrent::run([weak, tm, ref, track, doApply, force]() {

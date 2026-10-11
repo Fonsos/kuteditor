@@ -260,6 +260,8 @@ add_library(kuttranscript STATIC
     src/transcription/TranscriptRemap.h
     src/sync/TrackSync.cpp
     src/sync/TrackSync.h
+    src/util/CrashLog.cpp
+    src/util/CrashLog.h
 )
 target_include_directories(kuttranscript PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/src/transcription)
 target_link_libraries(kuttranscript PUBLIC Qt6::Core Qt6::Gui)
@@ -309,6 +311,10 @@ if(KUT_BUILD_TESTS)
     add_executable(test_tracksync tests/test_tracksync.cpp)
     target_link_libraries(test_tracksync PRIVATE kuttranscript Qt6::Test)
     add_test(NAME tracksync COMMAND test_tracksync)
+
+    add_executable(test_crashlog tests/test_crashlog.cpp)
+    target_link_libraries(test_crashlog PRIVATE kuttranscript Qt6::Test)
+    add_test(NAME crashlog COMMAND test_crashlog)
 
     # Integración con los modelos reales (TrackModel, UndoManager, transcripción)
     set(EDIT_TEST_SOURCES ${SOURCES})

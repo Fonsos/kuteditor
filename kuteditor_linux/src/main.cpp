@@ -28,6 +28,7 @@
 #include "sync/TrackSyncer.h"
 #include "ui/AppBusy.h"
 #include "audio/KutScratch.h"
+#include "util/CrashLog.h"
 #include "net/KutPodClient.h"
 
 #ifndef HAVE_KUTPOD
@@ -85,6 +86,10 @@ int main(int argc, char *argv[])
 
     QCoreApplication::setOrganizationName("Kut");
     QCoreApplication::setApplicationName("KutEditor");
+    QCoreApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
+    CrashLog::start();                                   // registro local + detección de cierres inesperados
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &app, [] { CrashLog::finish(); });
+    qInfo() << "Carpeta de trabajo:" << KutScratch::dir() << "| libre" << KutScratch::freeBytes() / (1 << 20) << "MB";
     {   // restos de ejecuciones anteriores que murieron (temporales de varios GB)
         const int n = KutScratch::cleanupStale();
         if (n > 0) qDebug() << "[main] Temporales antiguos eliminados:" << n;
@@ -203,6 +208,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("TranscriptEditor", transcriptEditor);
     engine.rootContext()->setContextProperty("TrackSyncer", trackSyncer);
     engine.rootContext()->setContextProperty("AppBusy", appBusy);
+    engine.rootContext()->setContextProperty("CrashLog", CrashLog::instance());
     engine.rootContext()->setContextProperty("ChapterModel", chapterModel);
     engine.rootContext()->setContextProperty("KutPod", kutpodClient);
 
