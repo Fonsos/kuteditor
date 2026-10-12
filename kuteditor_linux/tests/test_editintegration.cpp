@@ -45,6 +45,32 @@ QString makeWav(const QString &path, double seconds, const QVector<QPair<double,
     f.write("data"); ds << quint32(pcm.size()); f.write(pcm);
     return path;
 }
+// WAV de tonos puros: canal 0 = fL Hz, canal 1 (si hay) = fR Hz. 16 bits.
+QString makeToneWav(const QString &path, double seconds, int sr, int ch, double fL, double fR)
+{
+    const int frames = int(seconds * sr);
+    QByteArray pcm(frames * ch * 2, 0);
+    auto *p = reinterpret_cast<qint16 *>(pcm.data());
+    for (int i = 0; i < frames; ++i) {
+        const double t = double(i) / sr;
+        p[i * ch] = qint16(0.5 * std::sin(2 * M_PI * fL * t) * 32767);
+        if (ch > 1) p[i * ch + 1] = qint16(0.5 * std::sin(2 * M_PI * fR * t) * 32767);
+    }
+    QFile f(path); if (!f.open(QIODevice::WriteOnly)) return path;
+    QDataStream ds(&f); ds.setByteOrder(QDataStream::LittleEndian);
+    f.write("RIFF"); ds << quint32(36 + pcm.size()); f.write("WAVEfmt ");
+    ds << quint32(16) << quint16(1) << quint16(ch) << quint32(sr) << quint32(sr * ch * 2) << quint16(ch * 2) << quint16(16);
+    f.write("data"); ds << quint32(pcm.size()); f.write(pcm);
+    return path;
+}
+// Frecuencia dominante por cruces por cero (un canal de un buffer entrelazado)
+double zeroCrossFreq(const QVector<float> &buf, int ch, int k, int frames, int sr)
+{
+    int zc = 0;
+    for (int i = 1; i < frames; ++i) if ((buf[(i - 1) * ch + k] < 0) != (buf[i * ch + k] < 0)) ++zc;
+    return zc * 0.5 * sr / frames;
+}
+
 // WAV mono 8 kHz cuyo volumen sigue una envolvente (dB a 100 Hz).
 QString makeWavFromEnv(const QString &path, const QVector<float> &envDb)
 {
@@ -271,6 +297,33 @@ private slots:
         QVERIFY(!t2.clipsOf(0).isEmpty());
         QTRY_VERIFY_WITH_TIMEOUT(energyAt(t2, 30) > 0, 10000);
         QVERIFY(qAbs(energyAt(t2, 30) - energyAt(t1, 30)) < 0.01 * energyAt(t1, 30) + 1e-3);
+    }
+    void playbackIsStereoAndAtRightSpeedForMonoAndStereoSources() {
+        // Una pista MONO sonaba al doble de velocidad («voz de pito»): readMixSegment escribía 1 canal y el
+        // motor lo leía como estéreo. Se comprueba con audio corto (heap) y largo (mmap), mono y estéreo.
+        struct Case { int ch; double sec; const char *name; };
+        for (const Case &c : {Case{1, 10, "mono corto"}, Case{1, 70, "mono largo(mmap)"}, Case{2, 10, "estéreo corto"}, Case{2, 70, "estéreo largo(mmap)"}}) {
+            TrackModel t; t.addTrack("T");
+            QSignalSpy fin(&t, &TrackModel::importFinished);
+            QVERIFY(t.importAudioFile(0, makeToneWav(dir.filePath("tono.wav"), c.sec, 48000, c.ch, 440, 880), 0));
+            QTRY_COMPARE_WITH_TIMEOUT(fin.count(), 1, 30000);
+            QVERIFY2(fin.first().at(1).toBool(), c.name);
+            QTest::qWait(300);
+            const int N = 4800;                                   // 0,1 s
+            QVector<float> out(N * 2, 0.0f);
+            t.readMixSegment(0, 48000 * 5, N, out.data());
+            // cada muestra debe coincidir con la onda esperada (en el instante real, no solo la frecuencia)
+            double errL = 0, errR = 0;
+            for (int i = 0; i < N; ++i) {
+                const double tt = 5.0 + double(i) / 48000;
+                const double wantL = 0.5 * std::sin(2 * M_PI * 440 * tt);
+                const double wantR = c.ch == 1 ? wantL : 0.5 * std::sin(2 * M_PI * 880 * tt);   // mono → L=R
+                errL = std::max(errL, std::abs(double(out[i * 2]) - wantL));
+                errR = std::max(errR, std::abs(double(out[i * 2 + 1]) - wantR));
+            }
+            QVERIFY2(errL < 0.02, qPrintable(QString("%1: canal L difiere de lo esperado (error máx %2)").arg(c.name).arg(errL)));
+            QVERIFY2(errR < 0.02, qPrintable(QString("%1: canal R difiere de lo esperado (error máx %2)").arg(c.name).arg(errR)));
+        }
     }
     void importFailureIsReportedNotSilent() {
         TrackModel t; t.addTrack("X");

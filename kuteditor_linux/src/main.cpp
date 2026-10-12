@@ -99,10 +99,25 @@ int main(int argc, char *argv[])
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/resources/kuteditor.svg")));
 
     // Registrar fuente Material Symbols para iconos en QML
-    int fontId = QFontDatabase::addApplicationFont(
-        QStringLiteral(":/src/ui/fonts/MaterialSymbolsOutlined-ExtraLight.ttf"));
-    if (fontId < 0)
-        qWarning() << "[main] No se pudo cargar la fuente Material Symbols";
+    const QString iconFontRes = QStringLiteral(":/src/ui/fonts/MaterialSymbolsOutlined-ExtraLight.ttf");
+    int fontId = QFontDatabase::addApplicationFont(iconFontRes);
+    auto iconFontOk = [] { return QFontDatabase::families().contains(QStringLiteral("Material Symbols Outlined")); };
+    qInfo() << "[main] Fuente de iconos: id" << fontId
+            << "familias" << (fontId >= 0 ? QFontDatabase::applicationFontFamilies(fontId) : QStringList())
+            << "| registrada:" << iconFontOk();
+    if (fontId < 0 || !iconFontOk()) {
+        // Plan B: sacar la fuente del recurso a un archivo real y registrarla desde disco
+        qWarning() << "[main] No se pudo cargar la fuente de iconos desde el recurso; se prueba desde un archivo.";
+        const QString fontFile = KutScratch::dir() + QStringLiteral("/MaterialSymbolsOutlined.ttf");
+        QFile::remove(fontFile);
+        if (QFile::copy(iconFontRes, fontFile)) {
+            QFile::setPermissions(fontFile, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup | QFile::ReadOther);
+            fontId = QFontDatabase::addApplicationFont(fontFile);
+            qInfo() << "[main] Fuente de iconos desde archivo:" << fontFile << "id" << fontId << "| registrada:" << iconFontOk();
+        } else {
+            qWarning() << "[main] No se pudo copiar la fuente de iconos a" << fontFile;
+        }
+    }
 
     // Registrar WaveformItem como tipo QML nativo.
     // Uso: import KutComponents 1.0; WaveformItem { peaks: ...; gain: ... }
