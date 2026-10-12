@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import KutIcons 1.0
 
 /**
  * ChapterEditor: ventana externa para gestionar capítulos cómodamente.
@@ -126,8 +127,9 @@ Window {
                             Label {
                                 anchors.centerIn: parent
                                 visible: !chapterDelegate.artwork
-                                text: "🖼"
-                                font.pixelSize: 16
+                                text: Icons.image
+                                font.family: "Material Symbols Outlined"
+                                font.pixelSize: 20
                                 color: "#555"
                             }
 

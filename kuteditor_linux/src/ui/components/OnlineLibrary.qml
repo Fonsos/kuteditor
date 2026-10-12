@@ -241,8 +241,9 @@ Rectangle {
                                         }
                                         Label {
                                             anchors.centerIn: parent
-                                            text: "🌐"
-                                            font.pixelSize: 40
+                                            text: Icons.publish
+                                            font.family: "Material Symbols Outlined"
+                                            font.pixelSize: 48
                                             visible: !(modelData.cover || modelData.cover_url)
                                         }
                                     }

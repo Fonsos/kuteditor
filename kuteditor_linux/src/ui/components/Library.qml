@@ -458,8 +458,9 @@ Rectangle {
 
                                         Label {
                                             anchors.centerIn: parent
-                                            text: "🎙"
-                                            font.pixelSize: 48
+                                            text: Icons.microphone
+                                            font.family: "Material Symbols Outlined"
+                                            font.pixelSize: 56
                                             visible: !modelData.hasCover
                                         }
                                     }
@@ -507,10 +508,10 @@ Rectangle {
                                     }
                                     contentItem: Label {
                                         anchors.centerIn: parent
-                                        text: "✕"
+                                        text: Icons.close
                                         color: palette.brightText
-                                        font.pixelSize: 14
-                                        font.bold: true
+                                        font.family: "Material Symbols Outlined"
+                                        font.pixelSize: 18
                                         horizontalAlignment: Text.AlignHCenter
                                         verticalAlignment: Text.AlignVCenter
                                     }
@@ -650,8 +651,9 @@ Rectangle {
                                     visible: !(lib.currentPodcast && lib.currentPodcast.hasCover)
                                     spacing: 4
                                     Label {
-                                        text: "🎙"
-                                        font.pixelSize: 40
+                                        text: Icons.microphone
+                                        font.family: "Material Symbols Outlined"
+                                        font.pixelSize: 44
                                         anchors.horizontalCenter: parent.horizontalCenter
                                     }
                                     Label {

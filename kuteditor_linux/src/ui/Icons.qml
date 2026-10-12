@@ -26,6 +26,10 @@ QtObject {
     readonly property string zoomOut:      "zoom_out"
     readonly property string zoomFit:      "fit_screen"
 
+    // --- Sustitutos de emojis (no dependen de fuentes del sistema) ---
+    readonly property string close:        "close"
+    readonly property string image:        "image"
+
     // --- Toolbar: Análisis de audio ---
     readonly property string analyze:      "graphic_eq"
 

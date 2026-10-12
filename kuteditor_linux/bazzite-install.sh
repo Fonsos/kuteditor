@@ -63,6 +63,12 @@ box 'sudo dnf install -y --setopt=install_weak_deps=False \
   vulkan-headers vulkan-loader-devel glslang \
   pipewire-jack-audio-connection-kit pipewire-utils desktop-file-utils'
 
+# Fuentes de emojis y símbolos (el contenedor no las trae; algunos textos de la interfaz las usan: ⚠ ✓ 💡…).
+# Aparte y tolerante: si el nombre del paquete no existe en esta versión de Fedora no debe abortar la instalación.
+box 'sudo dnf install -y --setopt=install_weak_deps=False google-noto-color-emoji-fonts dejavu-sans-fonts 2>/dev/null \
+  || sudo dnf install -y --setopt=install_weak_deps=False google-noto-emoji-color-fonts dejavu-sans-fonts 2>/dev/null \
+  || echo "(aviso) no se pudo instalar la fuente de emojis; los iconos principales no dependen de ella"; fc-cache -f >/dev/null 2>&1 || true'
+
 if [ "$WHISPER" = 1 ]; then
   echo "==> 3/5 whisper.cpp (transcripción local; solo CPU, para GPU ver docs)"
   box 'set -e
