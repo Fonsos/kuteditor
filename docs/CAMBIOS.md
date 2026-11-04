@@ -2,7 +2,7 @@
 
 Cambios hechos sobre los proyectos de Ernesto Acosta (`ernestoacostame/kuteditor` y `ernestoacostame/kutpod`), en los forks
 `Fonsos/kuteditor` (rama `feature/plugin-manager`) y `Fonsos/kutpod` (rama `claude/fervent-rubin-wv8uey`).
-Las fechas son las de los commits. Solo se sube a los forks; nunca a los repositorios de Ernesto.
+Las fechas son las de los commits (del 6 de octubre al 4 de noviembre de 2026). Solo se sube a los forks; nunca a los repositorios de Ernesto.
 
 **Reparto de papeles** (aclarado el 7 de octubre): KutEditor es el editor (donde va la edición del episodio, con un gestor de
 plugins); KutPod es el servidor de publicación (solo necesita un contenedor Docker); los *shorts/reels* se generan en la web de
@@ -88,6 +88,28 @@ KutPod y quedan para el final del flujo.
   del editor de capítulos; el contenedor Fedora no trae fuente de emojis. Sustituidos por iconos de la fuente incluida; el script de Bazzite
   instala además la fuente de emojis. Se tocaron `Library.qml`, `ChapterEditor.qml` y `OnlineLibrary.qml` (archivos de Ernesto).
 - Diagnóstico de la fuente de iconos en el registro, con plan B (registrarla desde un archivo).
+
+## 2026-11-04 · Unión con los cambios de Ernesto (KutEditor 2.56 y KutPod 1.2.33)
+
+**KutEditor** (`ernestoacostame/kuteditor`, 22–30 de octubre): ocho commits.
+- Tirador arrastrable del cursor de reproducción en la regla, con imán a los bordes de los clips (`d06a92d`).
+- La ventana principal se muestra aunque KutPod esté deshabilitado (`a1892e4`).
+- Colisiones entre `Q_PROPERTY` y `Q_INVOKABLE` (`b6866f1`, vía PR de neoranger): `hasRecoveryProject`, `hasNoiseProfile` y
+  `noiseProfileMagnitudes` dejan de ser invocables. **Coincide con el arreglo de `hasRecoveryProject` que ya habíamos hecho el 10 de
+  octubre** (la llamada como función fallaba al arrancar); al unir, la línea quedó igual en los dos lados.
+- Árbol de **KutEditor Windows** nuevo; el de macOS pierde ~500 archivos binarios/`.DS_Store` por seguridad; README raíz reducido a un
+  resumen que remite a los de cada plataforma; versión 2.56.
+- Conflictos resueltos: `main.qml` (se conserva el aviso de cierre inesperado) y `README.md` (se adopta el nuevo y se añade el apartado
+  de plugins y de Bazzite). 8 grupos de tests, arranque con la versión 2.56 y comprobación visual: bien.
+
+**KutPod** (`ernestoacostame/kutpod`, 8 de octubre – 3 de noviembre): ~60 commits, de la 1.0.58 a la **1.2.33** (reproductor embebido,
+plugins KutBlog, barra lateral de episodios y estadísticas de YouTube, mejoras del feed y del Fediverso, actualizador, `release.sh`).
+Sin solape con el Estudio/Shorts: Ernesto no ha tocado edición, transcripción ni vídeos. Unión sin conflictos de texto; el panel, la
+página «Estudio de edición» y los ganchos del núcleo (`admin_pages`, `admin_nav`, dependencias de plugins) siguen funcionando.
+- **Fallo de Ernesto en instalaciones nuevas (v1.2.33)**: `storage/schema.sql` crea índices sobre `alerts` y las tablas OP3, que solo
+  se crean después; el instalador se detenía con «no such table». Afectaba también al `docker-compose`. Arreglado en este fork
+  (`schema.sql` crea `alerts`; `cli/install.php` aplica el esquema por sentencias y reintenta tras crear las tablas OP3). Conviene
+  avisar a Ernesto.
 
 ---
 
