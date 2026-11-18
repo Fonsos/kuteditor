@@ -2,7 +2,10 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
+#include <QTemporaryFile>
 #include <QVariantMap>
+#include <memory>
 
 class TrackModel;
 class AudioEngine;
@@ -29,6 +32,8 @@ class ChapterModel;
 class ExportManager : public QObject
 {
     Q_OBJECT
+    /// Modo en prueba (Ajustes → Exportación): exportar por bloques con memoria constante.
+    Q_PROPERTY(bool streamingExport READ streamingExport WRITE setStreamingExport NOTIFY streamingExportChanged)
 public:
     explicit ExportManager(QObject *parent = nullptr);
 
@@ -45,6 +50,9 @@ public:
      *                        Valores típicos: -14 (streaming), -16 (podcast),
      *                        -23 (broadcast EBU), -24 (broadcast USA).
      *   opts.metadata      : QVariantMap con claves title/artist/album/...
+     *   opts.streaming     : true = exportación por bloques (modo en prueba):
+     *                        memoria constante en vez de mezclar todo el episodio
+     *                        en RAM. Ver ExportStream.h.
      */
     Q_INVOKABLE bool exportWithOptions(const QString &filePath,
                                        const QVariantMap &opts);
@@ -54,7 +62,15 @@ public:
 
     Q_INVOKABLE QString lastError() const { return m_lastError; }
 
+    bool streamingExport() const { return m_streamingExport; }
+    void setStreamingExport(bool v) {
+        if (m_streamingExport == v) return;
+        m_streamingExport = v;
+        emit streamingExportChanged();
+    }
+
 signals:
+    void streamingExportChanged();
     void exportProgress(int percent);
     void exportFinished(bool success, const QString &filePath, const QString &errorMessage);
 
@@ -79,6 +95,21 @@ private:
     bool writeWavFile(const QString &filePath, const QVector<float> &samples,
                       int sampleRate, int channels, int bitDepth);
 
+    /// Comando de ffmpeg ya montado (argumentos, metadatos y capítulos temporales).
+    struct FfmpegJob {
+        QString ffmpegPath;
+        QStringList args;
+        std::unique_ptr<QTemporaryFile> chapterMeta;   ///< debe vivir hasta que ffmpeg acabe
+    };
+    bool buildFfmpegJob(const QString &filePath, int sampleRate, int channels,
+                        const QString &format, const QVariantMap &metadata,
+                        qint64 totalFrames, FfmpegJob &job);
+    void postProcessChapters(const QString &filePath, const QString &format);
+
+    /// Exportación por bloques (modo en prueba): mezcla, remuestrea, normaliza y escribe
+    /// sin tener el episodio entero en memoria. Solo estéreo.
+    bool exportStreaming(const QString &filePath, const QVariantMap &opts);
+
     /// Exporta vía ffmpeg: escribe stdin con F32LE, ffmpeg codifica al formato.
     bool exportViaFfmpeg(const QString &filePath, const QVector<float> &samples,
                          int sampleRate, int channels, const QString &format,
@@ -88,4 +119,5 @@ private:
     AudioEngine *m_audioEngine = nullptr;
     ChapterModel *m_chapterModel = nullptr;
     QString m_lastError;
+    bool m_streamingExport = false;
 };

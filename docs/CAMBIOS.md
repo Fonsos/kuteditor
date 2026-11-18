@@ -111,6 +111,22 @@ página «Estudio de edición» y los ganchos del núcleo (`admin_pages`, `admin
   (`schema.sql` crea `alerts`; `cli/install.php` aplica el esquema por sentencias y reintenta tras crear las tablas OP3). Conviene
   avisar a Ernesto.
 
+## 2026-11-18 · KutEditor
+
+- **Exportación por bloques (modo en prueba)**: *Ajustes → Exportación → «Exportar por bloques (en prueba)»*. El export normal mezcla todo
+  el episodio en un único vector en RAM, y además aplana cada pista (otra copia por pista), remuestrea (otra copia), mide el LUFS (el doble
+  de grande, en `double`) y convierte a 16/24 bits (otra más): en un episodio de 2 h el pico supera los 5 GB y el sistema mata el programa.
+  El modo nuevo mezcla, remuestrea, aplica la ganancia y escribe por trozos de ~1,5 s leyendo cada pista con `readMixSegment()` (la ruta de la
+  reproducción, sin aplanar). La normalización LUFS se hace en dos pasadas (medir y escribir) con el mismo resultado; a ffmpeg se le pasa
+  el audio por bloques esperando a que lo consuma. Desactivado por defecto; el export de siempre no cambia.
+  Código: `src/io/ExportStream.h` (núcleo sin Qt) y `ExportManager::exportStreaming`. Prueba aislada: `tests/export_stream_test.cpp`
+  (mezcla, remuestreo lineal y SINC, LUFS, conversión a PCM y memoria constante, comparados con el algoritmo clásico).
+  *Diferencias conocidas*: solo estéreo (con otro número de canales se usa el export clásico); un WAV de más de 4 GB no es válido
+  (límite del formato, igual que antes); fuentes con más de 2 canales usan los dos primeros (como la reproducción).
+  **Sin probar de extremo a extremo** con el programa compilado y episodios reales.
+- **Atajos de marcadores**: `Ctrl+M` añade un marcador de capítulo en el cursor (además de `M`) y `Ctrl+Mayús+M` abre el panel de
+  marcadores (editor de capítulos). Reflejados en la ayuda de atajos.
+
 ---
 
 ## Estado de las pruebas

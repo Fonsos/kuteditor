@@ -303,6 +303,9 @@ ApplicationWindow {
     property string lastExportPath: ""       // última ruta de exportación usada
     property bool returnPlayheadOnStop: false
     onReturnPlayheadOnStopChanged: AudioEngine.returnPlayheadOnStop = returnPlayheadOnStop
+    // Exportación por bloques (en prueba): memoria constante en episodios largos.
+    property bool experimentalStreamingExport: false
+    onExperimentalStreamingExportChanged: ExportManager.streamingExport = experimentalStreamingExport
 
     Settings {
         id: appSettings
@@ -316,6 +319,7 @@ ApplicationWindow {
         property alias lastExportPath: root.lastExportPath
         property alias showLibraryOnStart: root.showLibraryOnStart
         property alias returnPlayheadOnStop: root.returnPlayheadOnStop
+        property alias experimentalStreamingExport: root.experimentalStreamingExport
         property alias autoTranscribeOnShow: root.autoTranscribeOnShow
     }
 
@@ -1149,12 +1153,18 @@ ApplicationWindow {
         }
     }
     Shortcut {
-        sequence: "M"
+        sequences: ["M", "Ctrl+M"]
         context: Qt.ApplicationShortcut
         onActivated: {
             if (TrackModel.count > 0)
                 UndoManager.addChapterAtSec(AudioEngine.currentTime)
         }
+    }
+    // Panel de marcadores (editor de capítulos)
+    Shortcut {
+        sequence: "Ctrl+Shift+M"
+        context: Qt.ApplicationShortcut
+        onActivated: chapterEditorDialog.open()
     }
     Shortcut {
         sequences: ["SelectAll", "Ctrl+A"]
@@ -1670,7 +1680,8 @@ ApplicationWindow {
                         { key: "Ctrl+V",      desc: qsTr("Pegar clips") },
                         { key: "Ctrl+D",      desc: qsTr("Duplicar clips seleccionados") },
                         { key: "Ctrl+Shift+N", desc: qsTr("Normalización dinámica de la pista seleccionada (o todas)") },
-                        { key: "M",           desc: qsTr("Añadir marcador de capítulo en el cursor") },
+                        { key: "M / Ctrl+M",  desc: qsTr("Añadir marcador de capítulo en el cursor") },
+                        { key: "Ctrl+Shift+M", desc: qsTr("Abrir el panel de marcadores (capítulos)") },
                     ]
                     delegate: Row {
                         width: parent.width - 16; spacing: 8
@@ -1962,6 +1973,22 @@ ApplicationWindow {
                                                 : root.prefBitDepth === 32 ? 2 : 1
                                     onActivated: root.prefBitDepth = currentValue
                                 }
+                            }
+
+                            CheckBox {
+                                text: qsTr("Exportar por bloques (en prueba)")
+                                checked: root.experimentalStreamingExport
+                                onToggled: root.experimentalStreamingExport = checked
+                                Layout.fillWidth: true
+                            }
+                            Label {
+                                text: qsTr("Mezcla, remuestrea y escribe el audio por trozos en vez de tenerlo todo en memoria. "
+                                         + "Pensado para episodios largos o equipos con poca RAM. Si algo suena distinto a la "
+                                         + "exportación normal, desactívalo y avísanos.")
+                                color: root.textSec
+                                font.pixelSize: 11
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
                             }
 
                             ColumnLayout {

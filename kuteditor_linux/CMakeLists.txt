@@ -237,6 +237,7 @@ set(HEADERS
     src/ui/AppBusy.h
     src/ui/WaveformItem.h
     src/io/ExportManager.h
+    src/io/ExportStream.h
     src/io/ProjectIO.h
     src/io/FileHelper.h
     src/io/ChapterTagger.h
@@ -315,6 +316,11 @@ if(KUT_BUILD_TESTS)
     add_executable(test_crashlog tests/test_crashlog.cpp)
     target_link_libraries(test_crashlog PRIVATE kuttranscript Qt6::Test)
     add_test(NAME crashlog COMMAND test_crashlog)
+
+    # Núcleo de la exportación por bloques (C++ estándar, sin Qt)
+    add_executable(test_exportstream tests/export_stream_test.cpp)
+    target_include_directories(test_exportstream PRIVATE src/io)
+    add_test(NAME exportstream COMMAND test_exportstream)
 
     # Integración con los modelos reales (TrackModel, UndoManager, transcripción)
     set(EDIT_TEST_SOURCES ${SOURCES})

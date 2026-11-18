@@ -1,4 +1,5 @@
 #include "ExportManager.h"
+#include "ExportStream.h"
 #include "audio/AudioEngine.h"
 #include "audio/TrackFxChain.h"
 #include "ui/TrackModel.h"
@@ -17,6 +18,7 @@
 #include <cmath>
 #include <cstring>
 #include <algorithm>
+#include <vector>
 
 #ifdef HAVE_SAMPLERATE
 #include <samplerate.h>
@@ -697,9 +699,9 @@ bool ExportManager::writeWavFile(const QString &filePath, const QVector<float> &
 // ============================================================================
 //  ffmpeg (subproceso)
 // ============================================================================
-bool ExportManager::exportViaFfmpeg(const QString &filePath, const QVector<float> &samples,
-                                    int sampleRate, int channels, const QString &format,
-                                    const QVariantMap &metadata)
+bool ExportManager::buildFfmpegJob(const QString &filePath, int sampleRate, int channels,
+                                   const QString &format, const QVariantMap &metadata,
+                                   qint64 totalFrames, FfmpegJob &job)
 {
     // Detectar ffmpeg en PATH.
     const QString ffmpegPath = QStandardPaths::findExecutable("ffmpeg");
@@ -745,7 +747,7 @@ bool ExportManager::exportViaFfmpeg(const QString &filePath, const QVector<float
     if (m_chapterModel && m_chapterModel->count() > 0) {
         // Sincronizar duración del episodio antes de generar metadata.
         // Esto garantiza que el último CHAP.endTime == duración total (ID3 req).
-        const qint64 durationMs = qint64(double(samples.size()) / channels / sampleRate * 1000.0);
+        const qint64 durationMs = qint64(double(totalFrames) / sampleRate * 1000.0);
         m_chapterModel->setEpisodeDurationMs(durationMs);
 
         if (!taglibHandlesChapters) {
@@ -777,6 +779,8 @@ bool ExportManager::exportViaFfmpeg(const QString &filePath, const QVector<float
                      << "(" << m_chapterModel->count() << "capítulos)";
         }
     }
+
+    job.chapterMeta.reset(chapterMetaFile);
 
     // Metadatos: -metadata key=value
     auto addMeta = [&](const QString &key, const QString &ffKey) {
@@ -841,9 +845,37 @@ bool ExportManager::exportViaFfmpeg(const QString &filePath, const QVector<float
     // Debug: imprimir el comando completo para poder copiar/pegar.
     qDebug().noquote() << "[Export] Ejecutando:" << ffmpegPath << args.join(" ");
 
+    job.ffmpegPath = ffmpegPath;
+    job.args = args;
+    return true;
+}
+
+/// Post-procesado TagLib de los capítulos MP3 (APIC + WXXX); no es un error fatal.
+void ExportManager::postProcessChapters(const QString &filePath, const QString &format)
+{
+#ifdef HAVE_TAGLIB
+    if (format == "mp3" && m_chapterModel && m_chapterModel->count() > 0) {
+        if (!ChapterTagger::writeChapters(filePath, m_chapterModel)) {
+            qWarning() << "[Export] TagLib: falló al escribir capítulos con artwork";
+        }
+    }
+#else
+    Q_UNUSED(filePath); Q_UNUSED(format);
+#endif
+}
+
+bool ExportManager::exportViaFfmpeg(const QString &filePath, const QVector<float> &samples,
+                                    int sampleRate, int channels, const QString &format,
+                                    const QVariantMap &metadata)
+{
+    FfmpegJob job;
+    if (!buildFfmpegJob(filePath, sampleRate, channels, format, metadata,
+                        qint64(samples.size()) / channels, job))
+        return false;
+
     QProcess ff;
     ff.setProcessChannelMode(QProcess::MergedChannels);
-    ff.start(ffmpegPath, args);
+    ff.start(job.ffmpegPath, job.args);
     if (!ff.waitForStarted(5000)) {
         m_lastError = tr("No se pudo iniciar ffmpeg: %1").arg(ff.errorString());
         return false;
@@ -878,25 +910,311 @@ bool ExportManager::exportViaFfmpeg(const QString &filePath, const QVector<float
     qDebug().noquote() << "[Export] ffmpeg output:\n" << out;
     if (ff.exitCode() != 0) {
         m_lastError = tr("ffmpeg devolvió error:\n%1").arg(out);
-        delete chapterMetaFile;
         return false;
     }
-    delete chapterMetaFile;
 
     // ── Post-procesamiento TagLib: CHAP frames con artwork + URL ─────
     // FFmpeg solo escribe CHAP básicos (título + timestamps). TagLib
     // reescribe los frames con sub-frames APIC (imagen) y WXXX (URL)
     // embebidos, que es lo que necesitan Apple Podcasts y Pocket Casts.
-#ifdef HAVE_TAGLIB
-    if (format == "mp3" && m_chapterModel && m_chapterModel->count() > 0) {
-        if (!ChapterTagger::writeChapters(filePath, m_chapterModel)) {
-            qWarning() << "[Export] TagLib: falló al escribir capítulos con artwork";
-            // No es un error fatal: el MP3 ya existe con capítulos básicos.
-        }
-    }
-#endif
+    postProcessChapters(filePath, format);
 
     return true;
+}
+
+// ============================================================================
+//  Exportación por bloques (modo en prueba)
+// ============================================================================
+//  Mismo resultado que el camino clásico (mixDown → resample → LUFS → escritura),
+//  pero por bloques de ~1,5 s, leyendo cada pista con readMixSegment() en lugar de
+//  aplanarla entera en RAM. La matemática vive en ExportStream.h (con tests aparte);
+//  aquí solo se conecta con las pistas, los efectos, ffmpeg y el archivo.
+bool ExportManager::exportStreaming(const QString &filePath, const QVariantMap &opts)
+{
+    auto fail = [&](const QString &msg) {
+        m_lastError = msg;
+        emit exportFinished(false, filePath, m_lastError);
+        return false;
+    };
+
+    if (!m_trackModel) return fail(tr("Sin modelo de pistas"));
+    const int trackCount = m_trackModel->rowCount();
+    if (trackCount == 0) return fail(tr("No hay pistas"));
+
+    const int srcRate = AudioEngine::SAMPLE_RATE;
+    const bool anySolo = m_trackModel->anyTrackInSolo();
+
+    // ---- Pistas (sin aplanar) ----
+    std::vector<kutxs::TrackIn> tracks(static_cast<size_t>(trackCount));
+    qint64 maxFrames = 0;
+    for (int t = 0; t < trackCount; ++t) {
+        const qint64 frames = m_trackModel->trackFrameCount(t);
+        maxFrames = std::max(maxFrames, frames);
+        const auto snap = m_trackModel->mixerSnapshot(t);
+        TrackFxChain *fxc = m_trackModel->trackFxChain(t);
+        kutxs::TrackIn &ti = tracks[size_t(t)];
+        ti.frames = frames;
+        ti.gain = snap.gain;
+        ti.pan = snap.pan;
+        ti.active = snap.valid && !snap.muted && !(anySolo && !snap.solo) && frames > 0;
+        ti.hasFx = fxc && fxc->hasActiveEffects();
+        ti.read = [this, t](int64_t start, int n, float *dst) {
+            m_trackModel->readMixSegment(t, start, n, dst);
+        };
+    }
+    if (maxFrames <= 0) return fail(tr("Ninguna pista contiene audio"));
+
+    // ---- Opciones (igual que el camino clásico) ----
+    int dstRate = opts.value("sampleRate", srcRate).toInt();
+    if (dstRate != 44100 && dstRate != 48000) dstRate = srcRate;
+    const QString format = opts.value("format", "wav").toString().toLower();
+    const QVariantMap metadata = opts.value("metadata").toMap();
+    int bitDepth = opts.value("bitDepth", 24).toInt();
+    if (bitDepth != 16 && bitDepth != 24 && bitDepth != 32) bitDepth = 24;
+
+    double targetLufs = 0.0;
+    bool wantNorm = false;
+    const QVariant normVar = opts.value("normalizeLUFS");
+    if (normVar.isValid() && !normVar.isNull()) {
+        targetLufs = normVar.toDouble();
+        wantNorm = (targetLufs <= -5.0 && targetLufs >= -40.0);
+    }
+    const qint64 dstFrames = qint64(double(maxFrames) * double(dstRate) / double(srcRate));
+
+    // ---- AutoDuck master (misma condición que el camino clásico) ----
+    AutoDuckEffect *masterAD = m_audioEngine ? m_audioEngine->autoDuck() : nullptr;
+    int mdCtrl = -1, mdTgt = -1;
+    bool masterDuck = false;
+    if (masterAD && masterAD->enabled() && masterAD->controlTrack() >= 0 &&
+        masterAD->targetTrack() >= 0 && masterAD->controlTrack() != masterAD->targetTrack()) {
+        mdCtrl = masterAD->controlTrack();
+        mdTgt  = masterAD->targetTrack();
+        masterDuck = mdCtrl < trackCount && mdTgt < trackCount &&
+                     tracks[size_t(mdCtrl)].active && tracks[size_t(mdTgt)].active;
+    }
+
+    std::vector<float> scratch, scBuf, tgtBlock, duckBuf;
+
+    // Sidechain: señal cruda de la pista de control en [pos, pos+nn). false = sin señal.
+    auto sidechain = [&](int ctrlIdx, qint64 pos, int nn) -> bool {
+        if (ctrlIdx < 0 || ctrlIdx >= trackCount) return false;
+        const kutxs::TrackIn &c = tracks[size_t(ctrlIdx)];
+        if (!c.active || pos >= c.frames) return false;
+        scBuf.assign(size_t(nn) * 2, 0.0f);
+        const int avail = int(std::min<qint64>(nn, c.frames - pos));
+        m_trackModel->readMixSegment(ctrlIdx, pos, avail, scBuf.data());
+        return true;
+    };
+
+    // FX por pista, en sub-bloques de 1024 alineados a 0 (igual que el camino clásico).
+    kutxs::TrackHook fxHook = [&](int t, float *buf, int64_t start, int, int valid) {
+        TrackFxChain *fxc = m_trackModel->trackFxChain(t);
+        if (!fxc) return;
+        AutoDuckEffect *ad = fxc->autoDuck();
+        for (int off = 0; off < valid; off += kutxs::kFxBlock) {
+            const int nn = std::min(kutxs::kFxBlock, valid - off);
+            const qint64 pos = start + off;
+            if (ad && ad->enabled()) {
+                const int ctrlIdx = ad->controlTrack();
+                if (ctrlIdx >= 0 && ctrlIdx != t && sidechain(ctrlIdx, pos, nn))
+                    ad->feedSidechain(scBuf.data(), nn, 2, srcRate);
+                else
+                    ad->reset();
+            }
+            fxc->process(buf + size_t(off) * 2, nn, 2, srcRate);
+            if (ad && ad->enabled())
+                ad->processDuck(buf + size_t(off) * 2, nn, 2, srcRate);
+        }
+    };
+
+    // La pista objetivo del AutoDuck master: guardamos su señal ya procesada.
+    kutxs::ProcessedHook processed;
+    if (masterDuck) {
+        processed = [&](int t, const float *c, int64_t, int, int valid) {
+            if (t == mdTgt) std::copy(c, c + size_t(valid) * 2, tgtBlock.begin());
+        };
+    }
+
+    // Mezcla completa de un bloque: pistas + AutoDuck master + cadena master + clamp.
+    kutxs::MixFn mixFn = [&](int64_t start, int n, float *out) {
+        tgtBlock.assign(size_t(n) * 2, 0.0f);
+        kutxs::mixBlock(tracks, maxFrames, start, n, out, scratch, fxHook, processed);
+
+        if (masterDuck) {
+            for (int off = 0; off < n; off += kutxs::kFxBlock) {
+                const int nn = std::min(kutxs::kFxBlock, n - off);
+                const qint64 pos = start + off;
+                if (!sidechain(mdCtrl, pos, nn)) { masterAD->reset(); continue; }
+                masterAD->feedSidechain(scBuf.data(), nn, 2, srcRate);
+                float *o = out + size_t(off) * 2;
+                const float *tg = tgtBlock.data() + size_t(off) * 2;
+                for (int i = 0; i < nn * 2; ++i) o[i] -= tg[i];
+                duckBuf.assign(tg, tg + size_t(nn) * 2);
+                masterAD->processDuck(duckBuf.data(), nn, 2, srcRate);
+                for (int i = 0; i < nn * 2; ++i) o[i] += duckBuf[size_t(i)];
+            }
+        }
+
+        if (m_audioEngine) {
+            for (int off = 0; off < n; off += kutxs::kFxBlock) {
+                const int nn = std::min(kutxs::kFxBlock, n - off);
+                for (auto *fx : m_audioEngine->masterFxChain()) {
+                    if (fx->enabled())
+                        fx->process(out + size_t(off) * 2, nn, 2, srcRate);
+                }
+            }
+        }
+        for (int i = 0; i < n * 2; ++i) out[i] = std::max(-1.0f, std::min(1.0f, out[i]));
+    };
+
+    // Estado de efectos a cero antes de cada pasada (la medición y la escritura
+    // deben ver exactamente la misma señal).
+    auto resetState = [&]() {
+        for (int t = 0; t < trackCount; ++t) {
+            if (!tracks[size_t(t)].hasFx) continue;
+            if (TrackFxChain *fxc = m_trackModel->trackFxChain(t)) fxc->resetAll();
+        }
+        if (masterDuck) masterAD->reset();
+        if (m_audioEngine)
+            for (auto *fx : m_audioEngine->masterFxChain()) fx->reset();
+    };
+
+    auto reportProgress = [&](double lo, double hi) {
+        return kutxs::ProgressFn([this, lo, hi](double fr) {
+            emit exportProgress(int(lo + (hi - lo) * fr));
+            QCoreApplication::processEvents();
+            return true;
+        });
+    };
+
+    emit exportProgress(0); QCoreApplication::processEvents();
+
+    // ---- Pasada 1 (solo con normalización LUFS): medir ----
+    float gain = 1.0f;
+    double pass2Lo = 0.0;
+    if (wantNorm) {
+        resetState();
+        kutxs::LufsMeter meter(dstRate, 2);
+        const bool ok = kutxs::runPipeline(maxFrames, srcRate, dstRate, 1.0f, mixFn,
+            [&](const float *s, int64_t frames) { meter.feed(s, frames); return true; },
+            reportProgress(0, 40));
+        if (!ok) return fail(tr("Exportación cancelada"));
+        double current = -100.0;
+        if (meter.gainFor(targetLufs, gain, &current)) {
+            qDebug() << "[Export/bloques] LUFS actual:" << current << "objetivo:" << targetLufs
+                     << "→ gain:" << (20.0 * std::log10(gain)) << "dB";
+        } else {
+            gain = 1.0f;
+            qDebug() << "[Export/bloques] LUFS no medible, se omite normalización";
+        }
+        pass2Lo = 40;
+    }
+
+    // ---- Pasada 2: mezclar y escribir ----
+    resetState();
+    bool ok = false;
+
+    if (format == "wav") {
+        QFile f(filePath);
+        if (!f.open(QIODevice::WriteOnly))
+            return fail(tr("No se puede abrir el archivo para escribir: %1").arg(filePath));
+        const auto hdr0 = kutxs::wavHeader(dstRate, 2, bitDepth, 0);
+        f.write(reinterpret_cast<const char *>(hdr0.data()), qint64(hdr0.size()));
+
+        quint64 dataBytes = 0;
+        std::vector<uint8_t> pcm;
+        ok = kutxs::runPipeline(maxFrames, srcRate, dstRate, gain, mixFn,
+            [&](const float *s, int64_t frames) {
+                pcm.clear();
+                kutxs::floatToPcm(s, size_t(frames) * 2, bitDepth, pcm);
+                const qint64 w = f.write(reinterpret_cast<const char *>(pcm.data()), qint64(pcm.size()));
+                if (w != qint64(pcm.size())) {
+                    m_lastError = tr("Error escribiendo el archivo: %1").arg(f.errorString());
+                    return false;
+                }
+                dataBytes += quint64(pcm.size());
+                return true;
+            },
+            reportProgress(pass2Lo, 100));
+        if (ok) {
+            // Ahora que se conoce el tamaño real, reescribir la cabecera.
+            const auto hdr = kutxs::wavHeader(dstRate, 2, bitDepth, dataBytes);
+            f.seek(0);
+            f.write(reinterpret_cast<const char *>(hdr.data()), qint64(hdr.size()));
+        }
+        f.close();
+        if (!ok) {
+            if (m_lastError.isEmpty()) m_lastError = tr("Exportación cancelada");
+            QFile::remove(filePath);
+        }
+    } else {
+        FfmpegJob job;
+        if (!buildFfmpegJob(filePath, dstRate, 2, format, metadata, dstFrames, job))
+            return fail(m_lastError);
+
+        QProcess ff;
+        ff.setProcessChannelMode(QProcess::MergedChannels);
+        ff.start(job.ffmpegPath, job.args);
+        if (!ff.waitForStarted(5000))
+            return fail(tr("No se pudo iniciar ffmpeg: %1").arg(ff.errorString()));
+
+        QByteArray ffLog;
+        ok = kutxs::runPipeline(maxFrames, srcRate, dstRate, gain, mixFn,
+            [&](const float *s, int64_t frames) {
+                const qint64 total = frames * 2 * qint64(sizeof(float));
+                if (ff.write(reinterpret_cast<const char *>(s), total) != total) {
+                    m_lastError = tr("Error escribiendo a ffmpeg: %1").arg(ff.errorString());
+                    return false;
+                }
+                // Esperar a que ffmpeg consuma el bloque: así QProcess no acumula en RAM
+                // todo el audio pendiente (que era justo el problema).
+                while (ff.bytesToWrite() > 0) {
+                    if (!ff.waitForBytesWritten(60000)) {
+                        m_lastError = tr("ffmpeg dejó de responder: %1").arg(ff.errorString());
+                        return false;
+                    }
+                }
+                ffLog += ff.readAll();
+                if (ffLog.size() > 16384) ffLog = ffLog.right(8192);
+                if (ff.state() != QProcess::Running) {
+                    m_lastError = tr("ffmpeg terminó antes de tiempo:\n%1").arg(QString::fromUtf8(ffLog));
+                    return false;
+                }
+                return true;
+            },
+            reportProgress(pass2Lo, 97));
+
+        if (ok) {
+            ff.closeWriteChannel();
+            if (!ff.waitForFinished(300000)) {
+                m_lastError = tr("ffmpeg no terminó a tiempo");
+                ff.kill();
+                ok = false;
+            } else {
+                ffLog += ff.readAll();
+                qDebug().noquote() << "[Export/bloques] ffmpeg output:\n" << QString::fromUtf8(ffLog.right(4096));
+                if (ff.exitCode() != 0) {
+                    m_lastError = tr("ffmpeg devolvió error:\n%1").arg(QString::fromUtf8(ffLog.right(4096)));
+                    ok = false;
+                } else {
+                    postProcessChapters(filePath, format);
+                }
+            }
+        } else {
+            ff.kill();
+            ff.waitForFinished(2000);
+            if (m_lastError.isEmpty()) m_lastError = tr("Exportación cancelada");
+        }
+        if (!ok) QFile::remove(filePath);
+    }
+
+    if (ok) {
+        emit exportProgress(100); QCoreApplication::processEvents();
+        emit exportFinished(true, filePath, QString());
+    } else {
+        emit exportFinished(false, filePath, m_lastError);
+    }
+    return ok;
 }
 
 // ============================================================================
@@ -906,6 +1224,15 @@ bool ExportManager::exportWithOptions(const QString &filePath, const QVariantMap
 {
     m_lastError.clear();
     emit exportProgress(0); QCoreApplication::processEvents();
+
+    // Modo en prueba: exportación por bloques (memoria constante). Solo estéreo.
+    if (opts.value("streaming", m_streamingExport).toBool()) {
+        if (AudioEngine::CHANNELS == 2) {
+            qDebug() << "[Export] Modo por bloques (en prueba)";
+            return exportStreaming(filePath, opts);
+        }
+        qWarning() << "[Export] El modo por bloques solo admite estéreo; se usa el clásico";
+    }
 
     QVector<float> mix;
     int srcRate = 0, channels = 0;
