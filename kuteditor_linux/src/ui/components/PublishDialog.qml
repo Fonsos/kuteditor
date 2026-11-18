@@ -37,6 +37,7 @@ Dialog {
     property string _errorMsg: ""
     property string _episodeUrl: ""
     property bool   _publishing: false
+    property string customEpisodeCoverPath: ""
 
     function reset() {
         _selectedPodcastId = ""
@@ -47,6 +48,7 @@ Dialog {
         _errorMsg = ""
         _episodeUrl = ""
         _publishing = false
+        customEpisodeCoverPath = ""
     }
 
     onOpened: {
@@ -351,54 +353,182 @@ Dialog {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: palette.mid }
 
-                    // Resumen de extras
-                    Label {
-                        text: qsTr("Adjuntos detectados")
-                        color: palette.text; font.bold: true
-                    }
-                    ColumnLayout {
+                    RowLayout {
                         Layout.fillWidth: true
-                        spacing: 4
-                        RowLayout {
-                            Text {
-                                text: ChapterModel.count > 0 ? "✓" : "—"
-                                color: ChapterModel.count > 0 ? "#2ecc71" : palette.placeholderText
-                                font.bold: true; font.pixelSize: 14
-                            }
+                        spacing: 16
+                        Layout.alignment: Qt.AlignTop
+
+                        // Columna izquierda: Portada del episodio (opcional)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 8
+
                             Label {
+                                text: qsTr("Portada del episodio (opcional)")
                                 color: palette.text
-                                text: ChapterModel.count > 0
-                                    ? qsTr("%1 capítulos (con imágenes locales se suben al servidor)").arg(ChapterModel.count)
-                                    : qsTr("Sin capítulos")
+                                font.bold: true
+                            }
+
+                            RowLayout {
+                                spacing: 10
+                                Layout.fillWidth: true
+
+                                Rectangle {
+                                    id: customCoverBox
+                                    implicitWidth: 54
+                                    implicitHeight: 54
+                                    color: "#1f2226"
+                                    radius: 6
+                                    border.color: pubDlg.customEpisodeCoverPath !== "" ? palette.highlight : palette.mid
+                                    clip: true
+
+                                    Image {
+                                        anchors.fill: parent
+                                        anchors.margins: 2
+                                        source: pubDlg.customEpisodeCoverPath !== "" ? ("file://" + pubDlg.customEpisodeCoverPath) : ""
+                                        visible: pubDlg.customEpisodeCoverPath !== ""
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                        cache: false
+                                    }
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        visible: pubDlg.customEpisodeCoverPath === ""
+                                        text: qsTr("Por defecto\ndel podcast")
+                                        color: palette.placeholderText
+                                        font.pixelSize: 8
+                                        horizontalAlignment: Text.AlignHCenter
+                                    }
+
+                                    MouseArea {
+                                        id: customCoverHover
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                    }
+                                    ToolTip {
+                                        visible: customCoverHover.containsMouse
+                                        delay: 500
+                                        text: qsTr("Asigna una portada exclusiva para este episodio. Si no seleccionas ninguna, se usará la portada por defecto del podcast o las portadas de los capítulos.")
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    spacing: 4
+                                    Layout.fillWidth: true
+
+                                    RowLayout {
+                                        spacing: 6
+                                        Button {
+                                            text: pubDlg.customEpisodeCoverPath === ""
+                                                ? qsTr("Seleccionar portada…")
+                                                : qsTr("Cambiar portada…")
+                                            onClicked: customCoverPicker.open()
+                                        }
+                                        Button {
+                                            text: qsTr("Quitar")
+                                            visible: pubDlg.customEpisodeCoverPath !== ""
+                                            onClicked: pubDlg.customEpisodeCoverPath = ""
+                                        }
+                                    }
+                                    Label {
+                                        visible: pubDlg.customEpisodeCoverPath !== ""
+                                        text: FileHelper.fileName(pubDlg.customEpisodeCoverPath)
+                                        color: palette.text
+                                        font.pixelSize: 11
+                                        elide: Text.ElideMiddle
+                                        Layout.maximumWidth: 160
+                                    }
+                                }
                             }
                         }
-                        RowLayout {
-                            Text {
-                                text: pubDlg.transcriptPath !== "" ? "✓" : "—"
-                                color: pubDlg.transcriptPath !== "" ? "#2ecc71" : palette.placeholderText
-                                font.bold: true; font.pixelSize: 14
-                            }
+
+                        // Separador vertical
+                        Rectangle {
+                            Layout.fillHeight: true
+                            Layout.minimumHeight: 70
+                            Layout.preferredWidth: 1
+                            color: palette.mid
+                        }
+
+                        // Columna derecha: Adjuntos detectados
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 8
+
                             Label {
+                                text: qsTr("Adjuntos detectados")
                                 color: palette.text
-                                text: pubDlg.transcriptPath !== ""
-                                    ? qsTr("Transcripción adjunta: %1").arg(FileHelper.fileName(pubDlg.transcriptPath))
-                                    : qsTr("Sin transcripción")
+                                font.bold: true
+                            }
+
+                            ColumnLayout {
+                                spacing: 4
+                                Layout.fillWidth: true
+
+                                RowLayout {
+                                    spacing: 6
+                                    Text {
+                                        text: ChapterModel.count > 0 ? "✓" : "—"
+                                        color: ChapterModel.count > 0 ? "#2ecc71" : palette.placeholderText
+                                        font.bold: true; font.pixelSize: 13
+                                    }
+                                    Label {
+                                        color: palette.text
+                                        font.pixelSize: 11
+                                        text: ChapterModel.count > 0
+                                            ? qsTr("%1 capítulos (con imágenes locales se suben al servidor)").arg(ChapterModel.count)
+                                            : qsTr("Sin capítulos")
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+                                }
+                                RowLayout {
+                                    spacing: 6
+                                    Text {
+                                        text: pubDlg.transcriptPath !== "" ? "✓" : "—"
+                                        color: pubDlg.transcriptPath !== "" ? "#2ecc71" : palette.placeholderText
+                                        font.bold: true; font.pixelSize: 13
+                                    }
+                                    Label {
+                                        color: palette.text
+                                        font.pixelSize: 11
+                                        text: pubDlg.transcriptPath !== ""
+                                            ? qsTr("Transcripción adjunta: %1").arg(FileHelper.fileName(pubDlg.transcriptPath))
+                                            : qsTr("Sin transcripción")
+                                        elide: Text.ElideMiddle
+                                        Layout.maximumWidth: 160
+                                    }
+                                }
+                            }
+
+                            Button {
+                                text: pubDlg.transcriptPath === ""
+                                    ? qsTr("Adjuntar transcripción…")
+                                    : qsTr("Cambiar transcripción…")
+                                onClicked: transcriptPicker.open()
                             }
                         }
                     }
-                    Button {
-                        text: pubDlg.transcriptPath === ""
-                            ? qsTr("Adjuntar transcripción…")
-                            : qsTr("Cambiar transcripción…")
-                        onClicked: transcriptPicker.open()
+
+                    FileDialog {
+                        id: customCoverPicker
+                        title: qsTr("Seleccionar portada del episodio")
+                        nameFilters: [qsTr("Imágenes (*.jpg *.jpeg *.png *.webp)")]
+                        onAccepted: {
+                            pubDlg.customEpisodeCoverPath = FileHelper.urlToLocalFile(selectedFile.toString())
+                        }
                     }
+
                     FileDialog {
                         id: transcriptPicker
                         nameFilters: ["Subtítulos (*.srt *.vtt)"]
                         onAccepted: {
-                            var p = selectedFile.toString()
-                            if (p.startsWith("file://")) p = p.substring(7)
-                            pubDlg.transcriptPath = p
+                            pubDlg.transcriptPath = FileHelper.urlToLocalFile(selectedFile.toString())
                         }
                     }
                 }
@@ -559,6 +689,8 @@ Dialog {
             chapters.push(c)
         }
 
+        const durationSecs = Math.max(0, Math.round(AudioEngine.totalTime || 0))
+
         const payload = {
             title:          titleVal,
             description:    descVal,
@@ -567,9 +699,10 @@ Dialog {
             seasonNumber:   seasonVal,
             episodeType:    epTypeVal,
             publishAt:      scheduleVal,
+            duration:       durationSecs,
+            duration_secs:  durationSecs,
             audioPath:      _tmpExportPath,
-            coverPath:      ProjectIO.metadata && ProjectIO.metadata.coverPath
-                              ? ProjectIO.metadata.coverPath : "",
+            coverPath:      pubDlg.customEpisodeCoverPath,
             transcriptPath: pubDlg.transcriptPath,
             chapters:       chapters
         }

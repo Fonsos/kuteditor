@@ -6,6 +6,9 @@
 #include <QMetaObject>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QRegularExpression>
+#include <QSet>
+#include <algorithm>
 #include <cstring>
 
 #ifdef HAVE_JACK
@@ -65,6 +68,13 @@ QString clientOf(const QString &portName)
 {
     const int colon = portName.indexOf(':');
     return colon > 0 ? portName.left(colon) : portName;
+}
+
+// Obtiene el nombre del puerto sin el prefijo del cliente ("Client:port" -> "port")
+QString shortPortOf(const QString &portName)
+{
+    const int colon = portName.indexOf(':');
+    return colon >= 0 ? portName.mid(colon + 1) : portName;
 }
 
 int on_process_impl(jack_nframes_t nframes, void *arg)
@@ -350,15 +360,63 @@ void JackManager::refreshDevices()
 
 #ifdef HAVE_JACK
     if (m_impl && m_impl->client) {
-        // Enumerar puertos físicos de captura (= inputs para la app)
+        const QString myClient = QString::fromUtf8(jack_get_client_name(m_impl->client));
+        static const QRegularExpression pwNumSuffixRx(QStringLiteral("^(.*)-(\\d+)$"));
+
+        auto isExcludedClient = [&](const QString &c) {
+            if (c.isEmpty() || c == myClient) return true;
+            if (c.startsWith(QLatin1String("loopback"), Qt::CaseInsensitive)) return true;
+            if (c.contains(QLatin1String("loopback-"), Qt::CaseInsensitive)) return true;
+            if (c.startsWith(QLatin1String("Midi-"), Qt::CaseInsensitive)) return true;
+            if (c.startsWith(QLatin1String("bluez_"), Qt::CaseInsensitive)) return true;
+            if (c.startsWith(QLatin1String("v4l2_"), Qt::CaseInsensitive)) return true;
+            if (c.startsWith(QLatin1String("Freewheel-"), Qt::CaseInsensitive)) return true;
+            if (c.startsWith(QLatin1String("Dummy-"), Qt::CaseInsensitive)) return true;
+            return false;
+        };
+
+        // Enumerar puertos de captura (= inputs para la app, físicos o virtuales como UNIFY)
         const char **capturePorts = jack_get_ports(
             m_impl->client, nullptr, JACK_DEFAULT_AUDIO_TYPE,
-            JackPortIsOutput | JackPortIsPhysical);
+            JackPortIsOutput);
         if (capturePorts) {
+            // Conjunto previo de clientes para descartar alias/subnodos numerados de PipeWire
+            QSet<QString> allClientNames;
+            for (const char **p = capturePorts; *p; ++p) {
+                const QString c = ::clientOf(QString::fromUtf8(*p));
+                if (!isExcludedClient(c)) {
+                    allClientNames.insert(c);
+                }
+            }
+
             QHash<QString, JackDevice> byClient;
             for (const char **p = capturePorts; *p; ++p) {
                 const QString portName = QString::fromUtf8(*p);
                 const QString client = ::clientOf(portName);
+                if (isExcludedClient(client)) continue;
+
+                jack_port_t *jp = jack_port_by_name(m_impl->client, *p);
+                const bool isPhys = jp && (jack_port_flags(jp) & JackPortIsPhysical);
+
+                // FILTRAR APLICACIONES (streams de reproducción virtuales como Zen, Spotify, Chrome, etc.):
+                // En Linux/PipeWire, las aplicaciones reproduciendo audio crean puertos llamados "output_*" u "out_*".
+                // Los dispositivos reales (físicos o virtuales como UNIFY) usan puertos de captura ("capture_*")
+                // o monitores de canales ("monitor_*").
+                if (!isPhys) {
+                    const QString shortName = ::shortPortOf(portName);
+                    if (shortName.startsWith(QLatin1String("output"), Qt::CaseInsensitive) ||
+                        shortName.startsWith(QLatin1String("out"), Qt::CaseInsensitive)) {
+                        continue; // Descartar aplicaciones
+                    }
+                }
+
+                // Si este cliente tiene sufijo numérico (ej. "UNIFY-Chat-75" o "UNIFY-Chat-208")
+                // y el cliente base ("UNIFY-Chat") existe, descartar el subnodo duplicado.
+                const auto match = pwNumSuffixRx.match(client);
+                if (match.hasMatch() && allClientNames.contains(match.captured(1))) {
+                    continue;
+                }
+
                 auto &dev = byClient[client];
                 if (dev.id.isEmpty()) {
                     dev.id = client;
@@ -366,22 +424,66 @@ void JackManager::refreshDevices()
                     dev.description = client;
                     dev.isInput = true;
                 }
+                if (isPhys) {
+                    dev.isPhysical = true;
+                }
                 dev.portNames.append(portName);
                 dev.channelCount = dev.portNames.size();
             }
             jack_free(capturePorts);
-            for (const auto &d : byClient) allInputs.append(d);
+
+            // Ordenar: dispositivos físicos primero, luego virtuales ordenados alfabéticamente
+            QVector<JackDevice> sortedInputs;
+            sortedInputs.reserve(byClient.size());
+            for (const auto &d : byClient) sortedInputs.append(d);
+            std::sort(sortedInputs.begin(), sortedInputs.end(), [](const JackDevice &a, const JackDevice &b) {
+                if (a.isPhysical != b.isPhysical) {
+                    return a.isPhysical > b.isPhysical; // Físicos primero
+                }
+                return a.name.localeAwareCompare(b.name) < 0;
+            });
+
+            for (const auto &d : sortedInputs) allInputs.append(d);
         }
 
-        // Enumerar puertos físicos de playback (= outputs para la app)
+        // Enumerar puertos de playback (= outputs para la app, físicos o virtuales)
         const char **playbackPorts = jack_get_ports(
             m_impl->client, nullptr, JACK_DEFAULT_AUDIO_TYPE,
-            JackPortIsInput | JackPortIsPhysical);
+            JackPortIsInput);
         if (playbackPorts) {
+            QSet<QString> allClientNames;
+            for (const char **p = playbackPorts; *p; ++p) {
+                const QString c = ::clientOf(QString::fromUtf8(*p));
+                if (!isExcludedClient(c)) {
+                    allClientNames.insert(c);
+                }
+            }
+
             QHash<QString, JackDevice> byClient;
             for (const char **p = playbackPorts; *p; ++p) {
                 const QString portName = QString::fromUtf8(*p);
                 const QString client = ::clientOf(portName);
+                if (isExcludedClient(client)) continue;
+
+                jack_port_t *jp = jack_port_by_name(m_impl->client, *p);
+                const bool isPhys = jp && (jack_port_flags(jp) & JackPortIsPhysical);
+
+                // FILTRAR APLICACIONES DE GRABACIÓN (streams virtuales como OBS, Discord, etc.):
+                // En Linux/PipeWire, las aplicaciones que graban tienen entradas llamadas "input_*" o "in_*".
+                // Los destinos reales de salida (sinks de audio) usan puertos de reproducción ("playback_*").
+                if (!isPhys) {
+                    const QString shortName = ::shortPortOf(portName);
+                    if (shortName.startsWith(QLatin1String("input"), Qt::CaseInsensitive) ||
+                        shortName.startsWith(QLatin1String("in_"), Qt::CaseInsensitive)) {
+                        continue; // Descartar aplicaciones
+                    }
+                }
+
+                const auto match = pwNumSuffixRx.match(client);
+                if (match.hasMatch() && allClientNames.contains(match.captured(1))) {
+                    continue;
+                }
+
                 auto &dev = byClient[client];
                 if (dev.id.isEmpty()) {
                     dev.id = client;
@@ -389,11 +491,25 @@ void JackManager::refreshDevices()
                     dev.description = client;
                     dev.isInput = false;
                 }
+                if (isPhys) {
+                    dev.isPhysical = true;
+                }
                 dev.portNames.append(portName);
                 dev.channelCount = dev.portNames.size();
             }
             jack_free(playbackPorts);
-            for (const auto &d : byClient) allOutputs.append(d);
+
+            QVector<JackDevice> sortedOutputs;
+            sortedOutputs.reserve(byClient.size());
+            for (const auto &d : byClient) sortedOutputs.append(d);
+            std::sort(sortedOutputs.begin(), sortedOutputs.end(), [](const JackDevice &a, const JackDevice &b) {
+                if (a.isPhysical != b.isPhysical) {
+                    return a.isPhysical > b.isPhysical;
+                }
+                return a.name.localeAwareCompare(b.name) < 0;
+            });
+
+            for (const auto &d : sortedOutputs) allOutputs.append(d);
         }
     }
 #endif
@@ -620,19 +736,24 @@ void JackManager::connectTrackInput(int trackIndex)
     // usamos la primera opción disponible por defecto en el sistema.
     if (physPorts.isEmpty()) {
         if (!deviceId.isEmpty()) {
-            qWarning() << "[JACK] No se encontró el dispositivo" << deviceId << "o no tiene puertos físicos asignados. Usando dispositivo por defecto.";
+            qWarning() << "[JACK] No se encontró el dispositivo" << deviceId << "o no tiene puertos asignados. Usando dispositivo por defecto.";
         }
+        const QString myClient = QString::fromUtf8(jack_get_client_name(m_impl->client));
         const char **all = jack_get_ports(m_impl->client, nullptr,
                                           JACK_DEFAULT_AUDIO_TYPE,
-                                          JackPortIsOutput | JackPortIsPhysical);
+                                          JackPortIsOutput);
         if (all) {
-            for (const char **p = all; *p; ++p) physPorts << QString::fromUtf8(*p);
+            for (const char **p = all; *p; ++p) {
+                const QString port = QString::fromUtf8(*p);
+                if (::clientOf(port) == myClient) continue;
+                physPorts << port;
+            }
             jack_free(all);
         }
     }
 
     if (physPorts.isEmpty()) {
-        qWarning() << "[JACK] No hay puertos físicos de entrada disponibles en el sistema.";
+        qWarning() << "[JACK] No hay puertos de entrada disponibles en el sistema.";
         return;
     }
 
@@ -727,16 +848,21 @@ void JackManager::connectPlaybackOutput()
 #ifdef HAVE_JACK
     if (!m_impl || !m_impl->client || !m_impl->outL || !m_impl->outR) return;
 
+    const QString myClient = QString::fromUtf8(jack_get_client_name(m_impl->client));
     QStringList targetPorts;
     if (!m_outputDeviceId.isEmpty()) {
         // Buscar los puertos del cliente seleccionado.
         const char **pb = jack_get_ports(m_impl->client,
                                          (m_outputDeviceId + ":").toUtf8().constData(),
                                          JACK_DEFAULT_AUDIO_TYPE,
-                                         JackPortIsInput | JackPortIsPhysical);
+                                         JackPortIsInput);
         if (pb) {
-            for (const char **p = pb; *p && targetPorts.size() < 2; ++p)
-                targetPorts << QString::fromUtf8(*p);
+            for (const char **p = pb; *p && targetPorts.size() < 2; ++p) {
+                const QString pName = QString::fromUtf8(*p);
+                if (::clientOf(pName) != myClient) {
+                    targetPorts << pName;
+                }
+            }
             jack_free(pb);
         }
     }
@@ -746,19 +872,23 @@ void JackManager::connectPlaybackOutput()
         if (!m_outputDeviceId.isEmpty()) {
             qWarning() << "[JACK] No se encontró el dispositivo de salida" << m_outputDeviceId << "usando el dispositivo por defecto.";
         }
-        // Buscar los dos primeros puertos físicos playback.
+        // Buscar los dos primeros puertos playback disponibles.
         const char **pb = jack_get_ports(m_impl->client, nullptr,
                                          JACK_DEFAULT_AUDIO_TYPE,
-                                         JackPortIsInput | JackPortIsPhysical);
+                                         JackPortIsInput);
         if (pb) {
-            for (const char **p = pb; *p && targetPorts.size() < 2; ++p)
-                targetPorts << QString::fromUtf8(*p);
+            for (const char **p = pb; *p && targetPorts.size() < 2; ++p) {
+                const QString pName = QString::fromUtf8(*p);
+                if (::clientOf(pName) != myClient) {
+                    targetPorts << pName;
+                }
+            }
             jack_free(pb);
         }
     }
 
     if (targetPorts.size() < 1) {
-        qWarning() << "[JACK] No hay puertos playback físicos disponibles";
+        qWarning() << "[JACK] No hay puertos playback disponibles";
         return;
     }
 

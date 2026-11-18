@@ -56,6 +56,8 @@ ApplicationWindow {
     property string _errorMsg: ""
     property string _episodeUrl: ""
     property bool   _publishing: false
+    // Portada temporal exclusiva para este episodio (no reemplaza la del proyecto ni la del podcast)
+    property string customEpisodeCoverPath: ""
     // Episodio/temporada detectados desde KutPod (último ep + 1)
     property int _kutpodNextEpisode: -1
     property int _kutpodSeason: -1
@@ -69,6 +71,7 @@ ApplicationWindow {
         _errorMsg = ""
         _episodeUrl = ""
         _publishing = false
+        customEpisodeCoverPath = ""
         _kutpodNextEpisode = -1
         _kutpodSeason = -1
     }
@@ -219,6 +222,7 @@ ApplicationWindow {
 
         if (!pubWin.editMode) {
             pubWin.transcriptPath = ""
+            pubWin.customEpisodeCoverPath = ""
         }
     }
 
@@ -462,12 +466,13 @@ ApplicationWindow {
                 Item { Layout.fillHeight: true }
                 RowLayout {
                     Layout.fillWidth: true
-                    Button { text: qsTr("Cancelar"); onClicked: pubWin.close() }
+                    Button { text: qsTr("Cancelar"); leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6; onClicked: pubWin.close() }
                     Item { Layout.fillWidth: true }
                     BusyIndicator { running: KutPod.busy; visible: KutPod.busy }
                     Button {
                         text: qsTr("Iniciar sesión")
                         highlighted: true
+                        leftPadding: 16; rightPadding: 16; topPadding: 7; bottomPadding: 7
                         enabled: !KutPod.busy && lu.text.length > 4
                               && lus.text.length > 0 && lp.text.length > 0
                         onClicked: {
@@ -550,6 +555,7 @@ ApplicationWindow {
                         }
                         Button {
                             text: qsTr("Cambiar…")
+                            leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
                             onClicked: podcastPopup.open()
                         }
                     }
@@ -787,54 +793,185 @@ ApplicationWindow {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: palette.mid }
 
-                    // Resumen de extras
-                    Label {
-                        text: qsTr("Adjuntos detectados")
-                        color: palette.text; font.bold: true
-                    }
-                    ColumnLayout {
+                    RowLayout {
                         Layout.fillWidth: true
-                        spacing: 4
-                        RowLayout {
-                            Text {
-                                text: ChapterModel.count > 0 ? "✓" : "—"
-                                color: ChapterModel.count > 0 ? "#2ecc71" : palette.placeholderText
-                                font.bold: true; font.pixelSize: 14
-                            }
+                        spacing: 16
+                        Layout.alignment: Qt.AlignTop
+
+                        // Columna izquierda: Portada del episodio (opcional)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 8
+
                             Label {
+                                text: qsTr("Portada del episodio (opcional)")
                                 color: palette.text
-                                text: ChapterModel.count > 0
-                                    ? qsTr("%1 capítulos (con imágenes locales se suben al servidor)").arg(ChapterModel.count)
-                                    : qsTr("Sin capítulos")
+                                font.bold: true
+                            }
+
+                            RowLayout {
+                                spacing: 10
+                                Layout.fillWidth: true
+
+                                Rectangle {
+                                    id: customCoverBox
+                                    implicitWidth: 54
+                                    implicitHeight: 54
+                                    color: "#1f2226"
+                                    radius: 6
+                                    border.color: pubWin.customEpisodeCoverPath !== "" ? palette.highlight : palette.mid
+                                    clip: true
+
+                                    Image {
+                                        anchors.fill: parent
+                                        anchors.margins: 2
+                                        source: pubWin.customEpisodeCoverPath !== "" ? ("file://" + pubWin.customEpisodeCoverPath) : ""
+                                        visible: pubWin.customEpisodeCoverPath !== ""
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                        cache: false
+                                    }
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        visible: pubWin.customEpisodeCoverPath === ""
+                                        text: qsTr("Por defecto\ndel podcast")
+                                        color: palette.placeholderText
+                                        font.pixelSize: 8
+                                        horizontalAlignment: Text.AlignHCenter
+                                    }
+
+                                    MouseArea {
+                                        id: customCoverHover
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                    }
+                                    ToolTip {
+                                        visible: customCoverHover.containsMouse
+                                        delay: 500
+                                        text: qsTr("Asigna una portada exclusiva para este episodio. Si no seleccionas ninguna, se usará la portada por defecto del podcast o las portadas de los capítulos.")
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    spacing: 4
+                                    Layout.fillWidth: true
+
+                                    RowLayout {
+                                        spacing: 6
+                                        Button {
+                                            text: pubWin.customEpisodeCoverPath === ""
+                                                ? qsTr("Seleccionar portada…")
+                                                : qsTr("Cambiar portada…")
+                                            leftPadding: 12; rightPadding: 12; topPadding: 6; bottomPadding: 6
+                                            onClicked: customCoverPicker.open()
+                                        }
+                                        Button {
+                                            text: qsTr("Quitar")
+                                            leftPadding: 12; rightPadding: 12; topPadding: 6; bottomPadding: 6
+                                            visible: pubWin.customEpisodeCoverPath !== ""
+                                            onClicked: pubWin.customEpisodeCoverPath = ""
+                                        }
+                                    }
+                                    Label {
+                                        visible: pubWin.customEpisodeCoverPath !== ""
+                                        text: FileHelper.fileName(pubWin.customEpisodeCoverPath)
+                                        color: palette.text
+                                        font.pixelSize: 11
+                                        elide: Text.ElideMiddle
+                                        Layout.maximumWidth: 160
+                                    }
+                                }
                             }
                         }
-                        RowLayout {
-                            Text {
-                                text: pubWin.transcriptPath !== "" ? "✓" : "—"
-                                color: pubWin.transcriptPath !== "" ? "#2ecc71" : palette.placeholderText
-                                font.bold: true; font.pixelSize: 14
-                            }
+
+                        // Separador vertical
+                        Rectangle {
+                            Layout.fillHeight: true
+                            Layout.minimumHeight: 70
+                            Layout.preferredWidth: 1
+                            color: palette.mid
+                        }
+
+                        // Columna derecha: Adjuntos detectados
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 8
+
                             Label {
+                                text: qsTr("Adjuntos detectados")
                                 color: palette.text
-                                text: pubWin.transcriptPath !== ""
-                                    ? qsTr("Transcripción adjunta: %1").arg(FileHelper.fileName(pubWin.transcriptPath))
-                                    : qsTr("Sin transcripción")
+                                font.bold: true
+                            }
+
+                            ColumnLayout {
+                                spacing: 4
+                                Layout.fillWidth: true
+
+                                RowLayout {
+                                    spacing: 6
+                                    Text {
+                                        text: ChapterModel.count > 0 ? "✓" : "—"
+                                        color: ChapterModel.count > 0 ? "#2ecc71" : palette.placeholderText
+                                        font.bold: true; font.pixelSize: 13
+                                    }
+                                    Label {
+                                        color: palette.text
+                                        font.pixelSize: 11
+                                        text: ChapterModel.count > 0
+                                            ? qsTr("%1 capítulos (con imágenes locales se suben al servidor)").arg(ChapterModel.count)
+                                            : qsTr("Sin capítulos")
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+                                }
+                                RowLayout {
+                                    spacing: 6
+                                    Text {
+                                        text: pubWin.transcriptPath !== "" ? "✓" : "—"
+                                        color: pubWin.transcriptPath !== "" ? "#2ecc71" : palette.placeholderText
+                                        font.bold: true; font.pixelSize: 13
+                                    }
+                                    Label {
+                                        color: palette.text
+                                        font.pixelSize: 11
+                                        text: pubWin.transcriptPath !== ""
+                                            ? qsTr("Transcripción adjunta: %1").arg(FileHelper.fileName(pubWin.transcriptPath))
+                                            : qsTr("Sin transcripción")
+                                        elide: Text.ElideMiddle
+                                        Layout.maximumWidth: 160
+                                    }
+                                }
+                            }
+
+                            Button {
+                                text: pubWin.transcriptPath === ""
+                                    ? qsTr("Adjuntar transcripción…")
+                                    : qsTr("Cambiar transcripción…")
+                                leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
+                                onClicked: transcriptPicker.open()
                             }
                         }
                     }
-                    Button {
-                        text: pubWin.transcriptPath === ""
-                            ? qsTr("Adjuntar transcripción…")
-                            : qsTr("Cambiar transcripción…")
-                        onClicked: transcriptPicker.open()
+
+                    FileDialog {
+                        id: customCoverPicker
+                        title: qsTr("Seleccionar portada del episodio")
+                        nameFilters: [qsTr("Imágenes (*.jpg *.jpeg *.png *.webp)")]
+                        onAccepted: {
+                            pubWin.customEpisodeCoverPath = FileHelper.urlToLocalFile(selectedFile.toString())
+                        }
                     }
+
                     FileDialog {
                         id: transcriptPicker
                         nameFilters: ["Subtítulos (*.srt *.vtt)"]
                         onAccepted: {
-                            var p = selectedFile.toString()
-                            if (p.startsWith("file://")) p = p.substring(7)
-                            pubWin.transcriptPath = p
+                            pubWin.transcriptPath = FileHelper.urlToLocalFile(selectedFile.toString())
                         }
                     }
                 }
@@ -894,6 +1031,7 @@ ApplicationWindow {
                 Button {
                     Layout.alignment: Qt.AlignHCenter
                     text: pubWin._publishing ? qsTr("Cancelar") : qsTr("Cerrar")
+                    leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
                     onClicked: pubWin.close()
                 }
             }
@@ -918,11 +1056,13 @@ ApplicationWindow {
             
             Button {
                 text: qsTr("Cancelar")
+                leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
                 onClicked: pubWin.close()
             }
             Button {
                 text: pubWin.editMode ? qsTr("Guardar Cambios") : qsTr("Publicar")
                 highlighted: true
+                leftPadding: 16; rightPadding: 16; topPadding: 7; bottomPadding: 7
                 enabled: true
                 onClicked: pubWin._startPublish()
             }
@@ -1023,6 +1163,9 @@ ApplicationWindow {
             episode:     epVal,
             season:      seasonVal
         }
+        if (pubWin.customEpisodeCoverPath !== "") {
+            metadata.coverPath = pubWin.customEpisodeCoverPath
+        }
 
         const opts = {
             format:        "mp3",
@@ -1042,6 +1185,8 @@ ApplicationWindow {
             chapters.push(c)
         }
 
+        const durationSecs = Math.max(0, Math.round(AudioEngine.totalTime || 0))
+
         // Guardar el payload para usarlo en onExportFinished
         _pendingPayload = {
             title:          titleVal,
@@ -1051,9 +1196,10 @@ ApplicationWindow {
             seasonNumber:   seasonVal,
             episodeType:    epTypeVal,
             publishAt:      scheduleVal,
+            duration:       durationSecs,
+            duration_secs:  durationSecs,
             audioPath:      _tmpExportPath,
-            coverPath:      ProjectIO.metadata && ProjectIO.metadata.coverPath
-                              ? ProjectIO.metadata.coverPath : "",
+            coverPath:      pubWin.customEpisodeCoverPath,
             transcriptPath: pubWin.transcriptPath,
             chapters:       chapters
         }

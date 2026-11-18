@@ -148,7 +148,7 @@ Window {
                 // Barra de presets
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 32
+                    Layout.preferredHeight: 36
                     color: "#2a2d32"
 
                     RowLayout {
@@ -159,12 +159,12 @@ Window {
                         Button {
                             text: qsTr("Guardar")
                             Layout.fillWidth: true
-                            implicitHeight: 24
+                            implicitHeight: 28
+                            leftPadding: 10; rightPadding: 10; topPadding: 4; bottomPadding: 4
                             font.pixelSize: 10
                             onClicked: presetNameDialog.open()
                             background: Rectangle { color: "#3d4146"; radius: 3 }
                             contentItem: Label {
-                                anchors.centerIn: parent
                                 text: parent.text; color: "#ccc"
                                 font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
@@ -173,7 +173,8 @@ Window {
                         Button {
                             text: qsTr("Cargar")
                             Layout.fillWidth: true
-                            implicitHeight: 24
+                            implicitHeight: 28
+                            leftPadding: 10; rightPadding: 10; topPadding: 4; bottomPadding: 4
                             font.pixelSize: 10
                             onClicked: {
                                 presetListDialog.refreshPresets()
@@ -181,7 +182,6 @@ Window {
                             }
                             background: Rectangle { color: "#3d4146"; radius: 3 }
                             contentItem: Label {
-                                anchors.centerIn: parent
                                 text: parent.text; color: "#ccc"
                                 font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
@@ -204,6 +204,8 @@ Window {
                 anchors.fill: parent
                 anchors.margins: 8
                 clip: true
+                contentWidth: availableWidth
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                 Column {
                     width: parent.width
@@ -380,17 +382,27 @@ Window {
 
             // Tip + Auto-detectar
             Rectangle {
-                width:parent.width; height:36; color:"#1a2030"; radius:4; border.color:"#2a3850"
-                Row {
+                width: parent.width
+                implicitHeight: Math.max(40, duckTrackTipRow.implicitHeight + 16)
+                height: implicitHeight
+                color: "#1a2030"; radius: 4; border.color: "#2a3850"
+                RowLayout {
+                    id: duckTrackTipRow
                     anchors.fill: parent
                     anchors.margins: 8
                     spacing: 8
-                    Label { text:"💡 Asigna pistas manualmente o usa Auto-detectar (voz=esta pista, música=siguiente)."; color:"#5d8fd4"; font.pixelSize:9; wrapMode:Text.WordWrap; width:parent.width - autoBtn.width - 16; anchors.verticalCenter:autoBtn.verticalCenter }
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("💡 Asigna pistas manualmente o usa Auto-detectar (voz=esta pista, música=siguiente).")
+                        color: "#5d8fd4"; font.pixelSize: 9; wrapMode: Text.WordWrap
+                        verticalAlignment: Text.AlignVCenter
+                    }
                     Button {
-                        id: autoBtn; text:"Auto"; width:50; height:22
+                        id: autoBtn; text: "Auto"
+                        leftPadding: 12; rightPadding: 12; topPadding: 4; bottomPadding: 4
                         onClicked: { if(!fx) return; fx.setControlTrack(fxDialog.trackIndex); fx.setTargetTrack((fxDialog.trackIndex+1)%Math.max(1,TrackModel.count)) }
-                        background: Rectangle { color:parent.pressed?"#1a4a7a":"#1e3a5f"; radius:3; border.color:"#2980b9" }
-                        contentItem: Label { anchors.centerIn: parent; text:parent.text; color:"#5dade2"; font.pixelSize:9; font.bold:true; horizontalAlignment:Text.AlignHCenter; verticalAlignment:Text.AlignVCenter }
+                        background: Rectangle { color: parent.pressed ? "#1a4a7a" : "#1e3a5f"; radius: 3; border.color: "#2980b9" }
+                        contentItem: Label { text: parent.text; color: "#5dade2"; font.pixelSize: 9; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     }
                 }
             }
@@ -399,7 +411,7 @@ Window {
             Row {
                 spacing:8; width:parent.width
                 Column { width:(parent.width-8)/2; spacing:3
-                    Label { text:"VOZ (Control)"; color:"#777"; font.pixelSize:8; font.bold:true; font.letterSpacing:0.5 }
+                    Label { text: qsTr("VOZ (Control)"); color:"#777"; font.pixelSize:8; font.bold:true; font.letterSpacing:0.5 }
                     ComboBox {
                         width:parent.width; height:26
                         model: { var a=["— Ninguna —"]; for(var i=0;i<TrackModel.count;i++){var d=TrackModel.getTrackData(i); a.push("P"+(i+1)+": "+(d.name||"Sin nombre"))} return a }
@@ -410,7 +422,7 @@ Window {
                     }
                 }
                 Column { width:(parent.width-8)/2; spacing:3
-                    Label { text:"MÚSICA (Objetivo)"; color:"#777"; font.pixelSize:8; font.bold:true; font.letterSpacing:0.5 }
+                    Label { text: qsTr("MÚSICA (Objetivo)"); color:"#777"; font.pixelSize:8; font.bold:true; font.letterSpacing:0.5 }
                     ComboBox {
                         width:parent.width; height:26
                         model: { var a=["— Ninguna —"]; for(var i=0;i<TrackModel.count;i++){var d=TrackModel.getTrackData(i); a.push("P"+(i+1)+": "+(d.name||"Sin nombre"))} return a }
@@ -496,23 +508,33 @@ Window {
                     Label { anchors.centerIn:parent; text:fx && fx.enabled ? "ON":"OFF"; color:fx && fx.enabled ? "#ccc":"#666"; font.bold:true; font.pixelSize:10; font.letterSpacing:1 }
                     MouseArea { anchors.fill:parent; cursorShape:Qt.PointingHandCursor; onClicked:{ if(fx) fx.setEnabled(!fx.enabled) } }
                 }
-                Label { text:"Truncar silencio"; color:"#e8eaed"; font.bold:true; font.pixelSize:13; anchors.verticalCenter:parent.children[0].verticalCenter }
+                Label { text: qsTr("Truncar silencio"); color:"#e8eaed"; font.bold:true; font.pixelSize:13; anchors.verticalCenter:parent.children[0].verticalCenter }
             }
             Rectangle { width:parent.width; height:1; color:"#2a2d32" }
 
             // Advertencia + Procesar
             Rectangle {
-                width:parent.width; height:36; color:"#241e10"; radius:4; border.color:"#5a3e10"
-                Row {
+                width: parent.width
+                implicitHeight: Math.max(40, silenceTrackWarnRow.implicitHeight + 16)
+                height: implicitHeight
+                color: "#241e10"; radius: 4; border.color: "#5a3e10"
+                RowLayout {
+                    id: silenceTrackWarnRow
                     anchors.fill: parent
                     anchors.margins: 8
                     spacing: 8
-                    Label { text:"⚠  Elimina silencios del clip. Configura y pulsa Procesar."; color:"#d4a017"; font.pixelSize:10; wrapMode:Text.WordWrap; width:parent.width - procBtn.width - 16; anchors.verticalCenter:procBtn.verticalCenter }
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("⚠  Elimina silencios del clip. Configura y pulsa Procesar.")
+                        color: "#d4a017"; font.pixelSize: 10; wrapMode: Text.WordWrap
+                        verticalAlignment: Text.AlignVCenter
+                    }
                     Button {
-                        id:procBtn; text:"Procesar"; width:80; height:24
+                        id: procBtn; text: qsTr("Procesar")
+                        leftPadding: 12; rightPadding: 12; topPadding: 5; bottomPadding: 5
                         onClicked: { if(fx && typeof fx.apply==="function") fx.apply() }
-                        background: Rectangle { color:parent.pressed?"#7a5a00":"#5a4200"; radius:3; border.color:"#d4a017"; border.width:1 }
-                        contentItem: Label { anchors.centerIn: parent; text:parent.text; color:"#f0c040"; font.pixelSize:10; font.bold:true; horizontalAlignment:Text.AlignHCenter; verticalAlignment:Text.AlignVCenter }
+                        background: Rectangle { color: parent.pressed ? "#7a5a00" : "#5a4200"; radius: 3; border.color: "#d4a017"; border.width: 1 }
+                        contentItem: Label { text: parent.text; color: "#f0c040"; font.pixelSize: 10; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     }
                 }
             }
@@ -682,7 +704,8 @@ Window {
                         }
                         Button {
                             text: qsTr("Cargar")
-                            implicitHeight: 24
+                            implicitHeight: 26
+                            leftPadding: 12; rightPadding: 12; topPadding: 4; bottomPadding: 4
                             onClicked: {
                                 var path = fxDialog.presetsDir + "/" + modelData
                                 var raw = FileHelper.readTextFile(path)
@@ -696,7 +719,6 @@ Window {
                             }
                             background: Rectangle { color: "#2980b9"; radius: 3 }
                             contentItem: Label {
-                                anchors.centerIn: parent
                                 text: parent.text; color: "#fff"; font.pixelSize: 10
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
@@ -764,7 +786,7 @@ Window {
             Row {
                 spacing: 10
                 Label {
-                    text: "Compresor"
+                    text: qsTr("Compresor")
                     color: "#fff"; font.bold: true; font.pixelSize: 14
                     anchors.verticalCenter: parent.children[1].verticalCenter
                 }
@@ -1097,22 +1119,25 @@ Window {
 
             // Descarga o advertencia
             Rectangle {
-                width: parent.width; height: 48
+                width: parent.width
+                implicitHeight: Math.max(48, deepTrackWarnRow.implicitHeight + 16)
+                height: implicitHeight
                 color: fx && fx.isReady ? "#1a2030" : "#241e10"
                 radius: 4; border.color: fx && fx.isReady ? "#2a3850" : "#5a3e10"
                 visible: fx !== null
                 
                 RowLayout {
+                    id: deepTrackWarnRow
                     anchors.fill: parent; anchors.margins: 8; spacing: 8
                     
                     Label {
                         Layout.fillWidth: true
                         text: {
                             if (!fx) return ""
-                            if (fx.isReady) return "✓ Modelo IA cargado y listo."
+                            if (fx.isReady) return qsTr("✓ Modelo IA cargado y listo.")
                             if (fx.downloadProgress > 0 && fx.downloadProgress < 1.0)
-                                return "Descargando modelo: " + Math.round(fx.downloadProgress * 100) + "%"
-                            return "⚠ Faltan los pesos del modelo (~20MB)."
+                                return qsTr("Descargando modelo: %1%").arg(Math.round(fx.downloadProgress * 100))
+                            return qsTr("⚠ Faltan los pesos del modelo (~20MB).")
                         }
                         color: fx && fx.isReady ? "#5dade2" : "#d4a017"
                         font.pixelSize: 10; wrapMode: Text.WordWrap
@@ -1120,11 +1145,12 @@ Window {
                     }
                     
                     Button {
-                        text: "Descargar"
+                        text: qsTr("Descargar")
+                        leftPadding: 12; rightPadding: 12; topPadding: 5; bottomPadding: 5
                         visible: fx && !fx.isReady && fx.downloadProgress === 0
                         onClicked: { if(fx) fx.retryDownload() }
                         background: Rectangle { color: parent.pressed ? "#7a5a00" : "#5a4200"; radius: 3; border.color: "#d4a017"; border.width: 1 }
-                        contentItem: Label { anchors.centerIn: parent; text: parent.text; color: "#f0c040"; font.pixelSize: 10; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                        contentItem: Label { text: parent.text; color: "#f0c040"; font.pixelSize: 10; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     }
                 }
             }

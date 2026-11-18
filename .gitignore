@@ -17,6 +17,8 @@ CMakeUserPresets.json
 # Compilación y artefactos
 build/
 **/build/
+pkg/
+**/pkg/
 cmake-build-*/
 *.o
 *.obj
@@ -33,9 +35,8 @@ cmake-build-*/
 *.rpm
 
 # Distribución
-dist/*.dmg
-dist/*.exe
-dist/*.zip
+dist/
+**/dist/
 
 # Claves privadas, certificados y credenciales
 sparkle_private_key*

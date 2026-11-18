@@ -824,12 +824,23 @@ ApplicationWindow {
         clipboardClips = []
 
         if (lastSelection === "clips" && selectedClips.length > 0) {
+            TrackModel.copyClips(selectedClips)
             clipboardClips = selectedClips.map(sc => ({
                 sourceTrack: sc.track,
                 clipIndex: sc.clip
             }))
-        } else if (lastSelection === "region" || lastSelection === "trackRegions") {
+        } else if ((lastSelection === "region" || hasSelection) && hasSelection) {
             clipboardSnapshots = _getRegionSnapshots()
+            TrackModel.copyRegion(selStart, selEnd, selectedTracks)
+        } else if ((lastSelection === "trackRegions" || hasTrackRegions) && hasTrackRegions) {
+            clipboardSnapshots = _getRegionSnapshots()
+            TrackModel.copyTrackRegions(trackRegions)
+        } else if (selectedTracks.length > 0) {
+            TrackModel.copyTracks(selectedTracks)
+            clipboardClips = selectedTracks.map(t => ({ sourceTrack: t, clipIndex: 0 }))
+        } else if (selectedTrack >= 0) {
+            TrackModel.copyTracks([selectedTrack])
+            clipboardClips = [{ sourceTrack: selectedTrack, clipIndex: 0 }]
         }
     }
 
@@ -838,34 +849,20 @@ ApplicationWindow {
         clipboardClips = []
         clipboardIsCut = true
 
-        if (lastSelection === "clips" && selectedClips.length > 0) {
-            var snaps = []
-            for (var i = 0; i < selectedClips.length; i++) {
-                var sc = selectedClips[i]
-                var snap = TrackModel.clipSnapshot(sc.track, sc.clip)
-                if (snap && (snap.length !== undefined ? snap.length > 0 : Object.keys(snap).length > 0)) {
-                    snaps.push({ snapshot: snap, sourceTrack: sc.track })
-                }
-            }
-            clipboardSnapshots = snaps
-            clipboardClips = selectedClips.map(sc => ({
-                sourceTrack: sc.track,
-                clipIndex: sc.clip
-            }))
-            deleteSelected()
-        } else if (lastSelection === "region" || lastSelection === "trackRegions") {
-            clipboardSnapshots = _getRegionSnapshots()
-            deleteSelected()
-        }
+        copySelectedClips()
+        deleteSelected()
     }
 
     function pasteClips() {
-        if (clipboardClips.length === 0 && clipboardSnapshots.length === 0) return
+        if (!TrackModel.hasClipboard && clipboardClips.length === 0 && clipboardSnapshots.length === 0) return
 
         var targetTrack = root.selectedTrack >= 0 ? root.selectedTrack : 0
         var ph = AudioEngine.currentTime
 
-        if (clipboardSnapshots.length > 0) {
+        if (TrackModel.hasClipboard) {
+            UndoManager.pasteClipboard(targetTrack, ph, true)
+        } else if (clipboardSnapshots.length > 0) {
+            // Pegar desde snapshots (resultado de cortar).
             UndoManager.pasteMultipleClipSnapshots(targetTrack, clipboardSnapshots, ph, true)
         } else {
             // Copia normal: los clips originales siguen existiendo
@@ -1141,19 +1138,19 @@ ApplicationWindow {
     Shortcut {
         sequences: [StandardKey.Copy]
         context: Qt.ApplicationShortcut
-        enabled: root.selectedClips.length > 0 || root.hasSelection || root.hasTrackRegions
+        enabled: root.selectedClips.length > 0 || root.hasSelection || root.hasTrackRegions || root.selectedTracks.length > 0 || root.selectedTrack >= 0
         onActivated: root.copySelectedClips()
     }
     Shortcut {
         sequences: [StandardKey.Cut]
         context: Qt.ApplicationShortcut
-        enabled: root.selectedClips.length > 0 || root.hasSelection || root.hasTrackRegions
+        enabled: root.selectedClips.length > 0 || root.hasSelection || root.hasTrackRegions || root.selectedTracks.length > 0 || root.selectedTrack >= 0
         onActivated: root.cutSelectedClips()
     }
     Shortcut {
         sequences: [StandardKey.Paste]
         context: Qt.ApplicationShortcut
-        enabled: root.clipboardClips.length > 0 || root.clipboardSnapshots.length > 0
+        enabled: TrackModel.hasClipboard || root.clipboardClips.length > 0 || root.clipboardSnapshots.length > 0
         onActivated: root.pasteClips()
     }
     Shortcut {
@@ -1230,6 +1227,7 @@ ApplicationWindow {
         } else {
             ProjectIO.newProject()
             UndoManager.clear()
+            root.showLibrary = false
         }
     }
     function handleOpenProject() {
@@ -1279,16 +1277,17 @@ ApplicationWindow {
         title: qsTr("Abrir proyecto")
         fileMode: FileDialog.OpenFile
         currentFolder: root.prefProjectsDir !== ""
-                       ? "file://" + root.prefProjectsDir
+                       ? FileHelper.pathToUrl(root.prefProjectsDir)
                        : StandardPaths.writableLocation(StandardPaths.DocumentsLocation)
         nameFilters: [ qsTr("Proyectos Kut (*.kutproj)") ]
         onAccepted: {
-            const path = selectedFile.toString().replace(/^file:\/\//, "")
+            const path = FileHelper.urlToLocalFile(selectedFile.toString())
             if (!ProjectIO.open(path)) {
                 errorDialog.message = ProjectIO.lastError()
                 errorDialog.open()
             } else {
                 UndoManager.clear()
+                root.showLibrary = false
             }
         }
     }
@@ -1298,11 +1297,11 @@ ApplicationWindow {
         fileMode: FileDialog.SaveFile
         defaultSuffix: "kutproj"
         currentFolder: root.prefProjectsDir !== ""
-                       ? "file://" + root.prefProjectsDir
+                       ? FileHelper.pathToUrl(root.prefProjectsDir)
                        : StandardPaths.writableLocation(StandardPaths.DocumentsLocation)
         nameFilters: [ qsTr("Proyectos Kut (*.kutproj)") ]
         onAccepted: {
-            let path = selectedFile.toString().replace(/^file:\/\//, "")
+            let path = FileHelper.urlToLocalFile(selectedFile.toString())
             if (!path.endsWith(".kutproj")) path += ".kutproj"
             if (!ProjectIO.save(path)) {
                 errorDialog.message = ProjectIO.lastError()
@@ -1311,6 +1310,20 @@ ApplicationWindow {
             } else if (root._quitAfterSave) {
                 root._quitAfterSave = false
                 root._doForceQuit()
+            } else {
+                if (confirmDiscardDialog.pendingAction === "new") {
+                    ProjectIO.newProject()
+                    UndoManager.clear()
+                    root.showLibrary = false
+                    confirmDiscardDialog.pendingAction = ""
+                } else if (confirmDiscardDialog.pendingAction === "open") {
+                    confirmDiscardDialog.pendingAction = ""
+                    openFileDialog.open()
+                } else if (confirmDiscardDialog.pendingAction === "library") {
+                    confirmDiscardDialog.pendingAction = ""
+                    root.showLibrary = true
+                    libraryView.refreshPodcasts()
+                }
             }
         }
         onRejected: {
@@ -1348,7 +1361,7 @@ ApplicationWindow {
         nameFilters: ["JSON (*.json)"]
         defaultSuffix: "json"
         onAccepted: {
-            var path = selectedFile.toString().replace(/^file:\/\//, "")
+            var path = FileHelper.urlToLocalFile(selectedFile.toString())
             var chapters = ChapterModel.toJson(true)
             var wrapper = { "version": "1.2.0", "chapters": chapters }
             var jsonStr = JSON.stringify(wrapper, null, 2)
@@ -1380,6 +1393,7 @@ ApplicationWindow {
                 ProjectIO.save()
                 if (pendingAction === "new") {
                     ProjectIO.newProject(); UndoManager.clear()
+                    root.showLibrary = false
                 } else if (pendingAction === "open") {
                     openFileDialog.open()
                 } else if (pendingAction === "library") {
@@ -1392,6 +1406,7 @@ ApplicationWindow {
         onDiscarded: {
             if (pendingAction === "new") {
                 ProjectIO.newProject(); UndoManager.clear()
+                root.showLibrary = false
             } else if (pendingAction === "open") {
                 openFileDialog.open()
             } else if (pendingAction === "library") {
@@ -1515,6 +1530,7 @@ ApplicationWindow {
             Button {
                 Layout.alignment: Qt.AlignRight
                 text: qsTr("Aceptar")
+                leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
                 onClicked: errorDialog.close()
             }
         }
@@ -1549,6 +1565,7 @@ ApplicationWindow {
             Button {
                 Layout.alignment: Qt.AlignRight
                 text: qsTr("Aceptar")
+                leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
                 onClicked: infoDialog.close()
             }
         }
@@ -1557,12 +1574,12 @@ ApplicationWindow {
         id: deClickerDialog
         title: qsTr("Eliminar clics (De-Clicker)")
         width: 380
-        height: 280
+        height: 290
         minimumWidth: 380
-        minimumHeight: 280
+        minimumHeight: 290
         maximumWidth: 380
-        maximumHeight: 280
-        flags: Qt.Window | Qt.WindowStaysOnTopHint
+        maximumHeight: 290
+        flags: Qt.Window
         color: "#1e222b"
         function open() { visible = true; raise() }
         function close() { visible = false }
@@ -1638,40 +1655,52 @@ ApplicationWindow {
                 height: 12
             }
 
-            Button {
-                text: qsTr("Aplicar De-Clicker")
+            RowLayout {
                 width: parent.width
-                height: 38
-                onClicked: {
-                    let sens = 0.5
-                    if (deClickSensCombo.currentIndex === 0) sens = 0.2
-                    else if (deClickSensCombo.currentIndex === 1) sens = 0.5
-                    else if (deClickSensCombo.currentIndex === 2) sens = 0.8
+                spacing: 12
 
-                    let clicks = TrackModel.deClickSelection(
-                        deClickerDialog.trackIndex,
-                        deClickerDialog.startSec,
-                        deClickerDialog.endSec,
-                        deClickThreshSpin.value,
-                        sens
-                    )
-                    
-                    deClickerDialog.close()
-                    infoDialog.message = qsTr("De-Clicker completado: se repararon %1 clics en el rango seleccionado.").arg(clicks)
-                    infoDialog.open()
+                Button {
+                    text: qsTr("Aplicar De-Clicker")
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 38
+                    leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
+                    onClicked: {
+                        let sens = 0.5
+                        if (deClickSensCombo.currentIndex === 0) sens = 0.2
+                        else if (deClickSensCombo.currentIndex === 1) sens = 0.5
+                        else if (deClickSensCombo.currentIndex === 2) sens = 0.8
+
+                        let clicks = TrackModel.deClickSelection(
+                            deClickerDialog.trackIndex,
+                            deClickerDialog.startSec,
+                            deClickerDialog.endSec,
+                            deClickThreshSpin.value,
+                            sens
+                        )
+                        
+                        deClickerDialog.close()
+                        infoDialog.message = qsTr("De-Clicker completado: se repararon %1 clics en el rango seleccionado.").arg(clicks)
+                        infoDialog.open()
+                    }
+                    background: Rectangle {
+                        color: parent.pressed ? "#1e7e34" : (parent.hovered ? "#218838" : "#28a745")
+                        radius: 4
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: "#ffffff"
+                        font.pixelSize: 12
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
                 }
-                background: Rectangle {
-                    color: parent.pressed ? "#1e7e34" : (parent.hovered ? "#218838" : "#28a745")
-                    radius: 4
-                }
-                contentItem: Text {
-                    anchors.centerIn: parent
-                    text: parent.text
-                    color: "#ffffff"
-                    font.pixelSize: 12
-                    font.bold: true
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+
+                Button {
+                    text: qsTr("Cerrar")
+                    Layout.preferredHeight: 38
+                    leftPadding: 16; rightPadding: 16; topPadding: 6; bottomPadding: 6
+                    onClicked: deClickerDialog.close()
                 }
             }
         }
@@ -1873,6 +1902,56 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.leftMargin: 20; Layout.rightMargin: 20
                     spacing: 10
+
+                    // ── IDIOMA / LANGUAGE ───────────────────────────────
+                    Label {
+                        text: qsTr("IDIOMA / LANGUAGE")
+                        color: root.accent
+                        font.pixelSize: 11; font.bold: true
+                    }
+
+                    Frame {
+                        Layout.fillWidth: true
+                        padding: 12
+                        background: Rectangle { color: "#2a2d32"; radius: 6 }
+
+                        ColumnLayout {
+                            id: prefLangCol
+                            width: parent.width
+                            spacing: 8
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: qsTr("Idioma de la aplicación:")
+                                    color: root.textPri
+                                    Layout.preferredWidth: 160
+                                }
+                                ComboBox {
+                                    id: prefLangCombo
+                                    Layout.fillWidth: true
+                                    model: [
+                                        { text: qsTr("Automático (según el sistema)"), value: "auto" },
+                                        { text: "Español", value: "es" },
+                                        { text: "English", value: "en" }
+                                    ]
+                                    textRole: "text"
+                                    valueRole: "value"
+                                    currentIndex: {
+                                        var code = LanguageManager.currentLanguage;
+                                        if (code === "es") return 1;
+                                        if (code === "en") return 2;
+                                        return 0;
+                                    }
+                                    onActivated: {
+                                        LanguageManager.setLanguage(currentValue);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Item { Layout.preferredHeight: 2 }
 
                     // ── NORMALIZACIÓN DINÁMICA ───────────────────────────
                     Label {
@@ -2084,10 +2163,12 @@ ApplicationWindow {
                                     }
                                     Button {
                                         text: qsTr("Elegir…")
+                                        leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
                                         onClicked: prefProjectsDirDlg.open()
                                     }
                                     Button {
                                         text: qsTr("Quitar")
+                                        leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
                                         enabled: root.prefProjectsDir !== ""
                                         onClicked: root.prefProjectsDir = ""
                                     }
@@ -2106,7 +2187,7 @@ ApplicationWindow {
         id: prefProjectsDirDlg
         title: qsTr("Carpeta por defecto para proyectos")
         onAccepted: {
-            root.prefProjectsDir = selectedFolder.toString().replace(/^file:\/\//, "")
+            root.prefProjectsDir = FileHelper.urlToLocalFile(selectedFolder.toString())
         }
     }
 
@@ -2187,13 +2268,13 @@ ApplicationWindow {
             }
             Platform.MenuSeparator {}
             Platform.MenuItem {
-                text: qsTr("Copiar clips seleccionados")
-                enabled: root.selectedClips.length > 0
+                text: qsTr("Copiar pistas / clips seleccionados")
+                enabled: root.selectedClips.length > 0 || root.selectedTracks.length > 0 || root.selectedTrack >= 0 || root.hasSelection || root.hasTrackRegions
                 onTriggered: root.copySelectedClips()
             }
             Platform.MenuItem {
-                text: qsTr("Pegar clips")
-                enabled: root.clipboardClips.length > 0
+                text: qsTr("Pegar pistas / clips")
+                enabled: TrackModel.hasClipboard || root.clipboardClips.length > 0 || root.clipboardSnapshots.length > 0
                 onTriggered: root.pasteClips()
             }
             Platform.MenuItem {
@@ -2223,7 +2304,7 @@ ApplicationWindow {
 
             Platform.Menu {
                 title: qsTr("Reducción de ruido")
-                Platform.MenuItem { text: qsTr("Noise Reduction (Spectral)…"); onTriggered: noiseReductionDialog.open() }
+                Platform.MenuItem { text: qsTr("Noise Reduction (Spectral)…"); onTriggered: denoiserDialog.open() }
                 Platform.MenuItem { text: qsTr("Deep Denoise (AI)…"); onTriggered: deepDenoiseDialog.open() }
                 Platform.MenuItem { text: qsTr("Puerta de ruido…"); onTriggered: noiseGateDialog.open() }
                 Platform.MenuItem { text: qsTr("De-esser…"); onTriggered: deEsserDialog.open() }
@@ -2355,13 +2436,13 @@ ApplicationWindow {
             Rectangle { width: 1; height: 24; color: root.divider }
 
             // --- Edición ---
-            ToolBtn { ico: Icons.cut; tip: qsTr("Cortar"); enabled: root.selectedClips.length > 0 || root.hasSelection || root.hasTrackRegions
+            ToolBtn { ico: Icons.cut; tip: qsTr("Cortar"); enabled: root.selectedClips.length > 0 || root.hasSelection || root.hasTrackRegions || root.selectedTracks.length > 0 || root.selectedTrack >= 0
                 onClicked: root.cutSelectedClips()
             }
-            ToolBtn { ico: Icons.copy; tip: qsTr("Copiar (%1+C)").arg(root.cmdModifier); enabled: root.selectedClips.length > 0 || root.hasSelection || root.hasTrackRegions
+            ToolBtn { ico: Icons.copy; tip: qsTr("Copiar (%1+C)").arg(root.cmdModifier); enabled: root.selectedClips.length > 0 || root.hasSelection || root.hasTrackRegions || root.selectedTracks.length > 0 || root.selectedTrack >= 0
                 onClicked: root.copySelectedClips()
             }
-            ToolBtn { ico: Icons.paste; tip: qsTr("Pegar (%1+V)").arg(root.cmdModifier); enabled: root.clipboardClips.length > 0 || root.clipboardSnapshots.length > 0
+            ToolBtn { ico: Icons.paste; tip: qsTr("Pegar (%1+V)").arg(root.cmdModifier); enabled: TrackModel.hasClipboard || root.clipboardClips.length > 0 || root.clipboardSnapshots.length > 0
                 onClicked: root.pasteClips()
             }
             ToolBtn {
@@ -2747,9 +2828,9 @@ ApplicationWindow {
         }
 
         // -------- Playhead global (cursor único desde la Ruler hasta abajo) --------
-        Rectangle {
+        Item {
             id: globalPlayhead
-            width: 2
+            width: 16
             anchors.top: timelineRuler.top
             anchors.bottom: timelineScroll.bottom
             visible: {
@@ -2758,21 +2839,35 @@ ApplicationWindow {
                 return (vx >= -10) && (vx <= (timelineScroll.width - root.clipAreaLeftPx + 10))
             }
             z: 999
-            color: root.accent
-            opacity: 0.9
 
             x: {
                 const vx = root.secToViewX(AudioEngine.currentTime)
                 const px = root.clipAreaLeftPx + vx
-                return px - 1
+                return px - width / 2
+            }
+
+            // Renderizar línea + indicador en una única textura con interpolación
+            // sub-píxel bilineal para que ambos se muevan solidarios y sin saltos.
+            layer.enabled: true
+            layer.smooth: true
+
+            Rectangle {
+                id: playheadLine
+                x: 7
+                width: 2
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                color: root.accent
+                opacity: 0.9
+                antialiasing: true
             }
 
             // Tirador / Handle estilo Audacity en la regla superior
             Item {
                 id: playheadHandle
+                x: 0
                 width: 16
                 height: 16
-                anchors.horizontalCenter: parent.horizontalCenter
                 y: 11
                 z: 1000
 
@@ -3740,8 +3835,8 @@ ApplicationWindow {
     Window {
         id: truncateSilenceDialog
         title: qsTr("Truncar silencio")
-        width: 440
-        height: 280
+        width: 460
+        height: 300
         flags: Qt.Window
         color: "#22252a"
         function open() { visible = true; raise() }
@@ -3753,11 +3848,13 @@ ApplicationWindow {
             spacing: 14
 
             // Selector de pista
-            Row {
+            RowLayout {
+                width: parent.width
                 spacing: 8
-                Label { text: qsTr("Pista objetivo:"); color: "#ccc"; anchors.verticalCenter: parent.children[1].verticalCenter; font.pixelSize: 12; font.bold: true }
+                Label { text: qsTr("Pista objetivo:"); color: "#ccc"; font.pixelSize: 12; font.bold: true }
                 ComboBox {
-                    id: tsTrackCombo; width: 220
+                    id: tsTrackCombo
+                    Layout.fillWidth: true
                     model: {
                         var items = [qsTr("Todas las pistas")]
                         for (var i = 0; i < TrackModel.count; i++)
@@ -3789,198 +3886,100 @@ ApplicationWindow {
     }
 
     // ========================================================================
-    //  Ventana de Noise Reduction (sustracción espectral)
+    //  Ventana Unificada de Noise Reduction (Tiempo Real + Modo Avanzado)
     // ========================================================================
-    Window {
+    QtObject {
         id: noiseReductionDialog
-        title: qsTr("Noise Reduction (Avanzado)")
-        width: 440
-        height: 620
-        flags: Qt.Window | Qt.WindowStaysOnTopHint
-        color: "#22252a"
-        function open() { visible = true; raise() }
-        function close() { visible = false }
-
-        property bool hasProfile: TrackModel.hasNoiseProfile
-
-        Column {
-            anchors.fill: parent
-            anchors.margins: 20
-            spacing: 16
-
-            Label {
-                text: qsTr("Noise Reduction — Spectral Subtraction")
-                color: "#fff"; font.pixelSize: 14; font.bold: true
-            }
-
-            // --- Visualizador del Perfil Capturado ---
-            SpectralDisplay {
-                width: parent.width
-                height: 140
-                active: noiseReductionDialog.hasProfile
-                // Solo mostramos el ruido capturado ya que es un proceso offline
-                noiseMags: TrackModel.noiseProfileMagnitudes
-                inputMags: []
-                outputMags: []
-                
-                Label {
-                    anchors.centerIn: parent
-                    text: qsTr("Sin perfil capturado")
-                    color: "#555"; font.pixelSize: 12
-                    visible: !noiseReductionDialog.hasProfile
-                }
-            }
-
-            Rectangle { width: parent.width; height: 1; color: "#3c4146" }
-
-            // Paso 1: Captura
-            Label {
-                text: qsTr("Paso 1: Capturar perfil de ruido")
-                color: "#1abc9c"; font.pixelSize: 12; font.bold: true
-            }
-            
-            Grid {
-                columns: 2; spacing: 8; width: parent.width
-                Label { text: qsTr("Pista:"); color: "#888"; verticalAlignment: Text.AlignVCenter; height: 32 }
-                ComboBox {
-                    id: nrTrackCombo; width: parent.width - 60
-                    model: {
-                        var items = []
-                        for (var i = 0; i < TrackModel.count; i++)
-                            items.push(qsTr("Pista %1").arg(i + 1))
-                        return items
-                    }
-                }
-                Label { text: qsTr("Clip:"); color: "#888"; verticalAlignment: Text.AlignVCenter; height: 32 }
-                SpinBox { id: nrClipSpin; from: 1; to: 99; value: 1 }
-            }
-
-            Button {
-                text: qsTr("Obtener perfil de ruido")
-                width: parent.width
-                onClicked: {
-                    TrackModel.noiseProfileCapture(
-                        nrTrackCombo.currentIndex, nrClipSpin.value - 1,
-                        nrFromSpin.value, nrToSpin.value)
-                    nrStatus.text = TrackModel.hasNoiseProfile ? qsTr("Perfil capturado.") : qsTr("Error al capturar.")
-                    nrStatus.color = TrackModel.hasNoiseProfile ? "#2ecc71" : "#e74c3c"
-                }
-                background: Rectangle { color: "#2980b9"; radius: 4 }
-            }
-
-            Row {
-                spacing: 8; width: parent.width
-                Label { text: qsTr("Rango (s):"); color: "#888"; anchors.verticalCenter: parent.verticalCenter }
-                SpinBox { id: nrFromSpin; from: 0; to: 999; value: 0; editable: true }
-                Label { text: "-"; color: "#888"; anchors.verticalCenter: parent.verticalCenter }
-                SpinBox { id: nrToSpin; from: 0; to: 999; value: 0; editable: true }
-            }
-
-            Rectangle { width: parent.width; height: 1; color: "#3c4146" }
-
-            // Paso 2: Aplicar
-            Label {
-                text: qsTr("Paso 2: Parámetros y Aplicación")
-                color: noiseReductionDialog.hasProfile ? "#1abc9c" : "#444"
-                font.pixelSize: 12; font.bold: true
-            }
-
-            Row {
-                width: parent.width; spacing: 30
-                anchors.horizontalCenter: parent.horizontalCenter
-                enabled: noiseReductionDialog.hasProfile
-                opacity: enabled ? 1.0 : 0.3
-
-                Column {
-                    spacing: 4
-                    anchors.verticalCenter: parent.verticalCenter
-                    BigMetalKnob {
-                        id: nrReductionDial
-                        size: 100
-                        from: 0; to: 40
-                        value: 12
-                        activeColor: "#1abc9c"
-                    }
-                    Label {
-                        text: qsTr("Reduction")
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        color: "#aaa"
-                        font.pixelSize: 12
-                    }
-                }
-
-                Column {
-                    spacing: 4
-                    anchors.verticalCenter: parent.verticalCenter
-                    BigMetalKnob {
-                        id: nrSensitivityDial
-                        size: 100
-                        from: 0; to: 24
-                        value: 6
-                        activeColor: "#f39c12"
-                    }
-                    Label {
-                        text: qsTr("Sensitivity")
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        color: "#aaa"
-                        font.pixelSize: 12
-                    }
-                }
-            }
-
-            Button {
-                text: qsTr("Aplicar Noise Reduction")
-                width: parent.width
-                enabled: noiseReductionDialog.hasProfile
-                onClicked: {
-                    var ok = UndoManager.noiseReduce(
-                        nrTrackCombo.currentIndex, nrClipSpin.value - 1,
-                        nrReductionDial.value, nrSensitivityDial.value)
-                    nrStatus.text = ok ? qsTr("Efecto aplicado correctamente.") : qsTr("Error al aplicar.")
-                }
-                background: Rectangle { color: parent.enabled ? "#27ae60" : "#444"; radius: 4 }
-            }
-
-            Label { id: nrStatus; text: ""; color: "#888"; font.pixelSize: 11; anchors.horizontalCenter: parent.horizontalCenter }
-        }
+        function open() { denoiserDialog.openAdvanced() }
+        function close() { denoiserDialog.close() }
     }
 
-    // ========================================================================
-    //  Ventana del DeNoiser
-    // ========================================================================
     Window {
         id: denoiserDialog
         title: qsTr("Noise Reduction")
-        width: 420
-        height: 600
-        flags: Qt.Window | Qt.WindowStaysOnTopHint
+        width: 480
+        minimumWidth: 460
+        height: nrMode === 0 ? 590 : 680
+        flags: Qt.Window
         color: "#22252a"
+
+        property int nrMode: 0 // 0: Tiempo Real, 1: Avanzado (Perfil)
+        property bool hasProfile: TrackModel.hasNoiseProfile
+
         function open() { visible = true; raise() }
+        function openAdvanced() { nrMode = 1; open() }
         function close() { visible = false }
 
         Column {
             anchors.fill: parent
-            anchors.margins: 20
-            spacing: 24
+            anchors.margins: 18
+            spacing: 16
 
-            // --- Visualizador Espectral ---
-            SpectralDisplay {
+            // --- Header con título, selector de modo y botón cerrar ---
+            RowLayout {
                 width: parent.width
-                height: 180
-                active: denoiserToggle.active && denoiserDialog.visible
-                inputMags: AudioEngine.deNoiser.inputMagnitudes
-                outputMags: AudioEngine.deNoiser.outputMagnitudes
-                noiseMags: AudioEngine.deNoiser.noiseMagnitudes
-            }
 
-            // --- Control de estado (ON/OFF) ---
-            Row {
-                width: parent.width
-                layoutDirection: Qt.RightToLeft
-                
+                Label {
+                    text: qsTr("Noise Reduction")
+                    color: "#ffffff"
+                    font.pixelSize: 15
+                    font.bold: true
+                }
+
+                Item { Layout.fillWidth: true }
+
+                // Selector de modo
+                Row {
+                    spacing: 4
+
+                    Rectangle {
+                        implicitWidth: nrRtText.implicitWidth + 24
+                        height: 26
+                        radius: 4
+                        color: denoiserDialog.nrMode === 0 ? "#2980b9" : "#333"
+                        border.color: denoiserDialog.nrMode === 0 ? "#3498db" : "#444"
+                        Text {
+                            id: nrRtText
+                            anchors.centerIn: parent
+                            text: qsTr("Tiempo Real")
+                            color: denoiserDialog.nrMode === 0 ? "white" : "#aaa"
+                            font.pixelSize: 11
+                            font.bold: denoiserDialog.nrMode === 0
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: denoiserDialog.nrMode = 0
+                        }
+                    }
+
+                    Rectangle {
+                        implicitWidth: nrAdvText.implicitWidth + 24
+                        height: 26
+                        radius: 4
+                        color: denoiserDialog.nrMode === 1 ? "#16a085" : "#333"
+                        border.color: denoiserDialog.nrMode === 1 ? "#1abc9c" : "#444"
+                        Text {
+                            id: nrAdvText
+                            anchors.centerIn: parent
+                            text: qsTr("Avanzado")
+                            color: denoiserDialog.nrMode === 1 ? "white" : "#aaa"
+                            font.pixelSize: 11
+                            font.bold: denoiserDialog.nrMode === 1
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: denoiserDialog.nrMode = 1
+                        }
+                    }
+                }
+
+                // Toggle ON/OFF (activo en modo Tiempo Real)
                 Rectangle {
                     id: denoiserToggle
-                    width: 44; height: 22
+                    visible: denoiserDialog.nrMode === 0
+                    width: 44; height: 24
                     radius: 4
                     property bool active: AudioEngine.deNoiser.enabled
                     color: active ? "#2980b9" : "#333"
@@ -3995,49 +3994,238 @@ ApplicationWindow {
 
                     MouseArea {
                         anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
                         onClicked: {
                             denoiserToggle.active = !denoiserToggle.active
                             AudioEngine.deNoiser.setEnabled(denoiserToggle.active)
                         }
                     }
                 }
-            }
 
-            // --- Diales de Control ---
-            Item {
-                width: parent.width; height: 140
-
-                BigMetalKnob {
-                    id: denoiserReductionDial
-                    size: 120
-                    from: 0; to: 1.0
-                    value: AudioEngine.deNoiser.reduction
-                    activeColor: "#3498db"
-                    anchors.centerIn: parent
-                    onMoved: (val) => AudioEngine.deNoiser.setReduction(val)
-                    
-                    Label {
-                        text: qsTr("Reduction")
-                        anchors.top: denoiserReductionDial.bottom
-                        anchors.topMargin: 8
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        color: "#aaa"
-                        font.pixelSize: 12
-                    }
-                    Label {
-                        anchors.top: parent.top; anchors.topMargin: -16
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: parent.value.toFixed(1) + " dB"
-                        color: "#666"; font.pixelSize: 9
-                    }
+                Button {
+                    text: "✕"
+                    implicitWidth: 26; implicitHeight: 26
+                    flat: true
+                    palette.buttonText: "#aaaaaa"
+                    onClicked: denoiserDialog.close()
                 }
             }
 
-            Label {
-                text: qsTr("Smoothing: valores altos = más suave. Bajos = más agresivo.")
-                color: "#555"; font.pixelSize: 10
+            Rectangle { width: parent.width; height: 1; color: "#3c4146" }
+
+            // ==========================================
+            // MODO 0: Tiempo Real (Streaming DeNoiser)
+            // ==========================================
+            Column {
+                width: parent.width
+                spacing: 18
+                visible: denoiserDialog.nrMode === 0
+
+                SpectralDisplay {
+                    width: parent.width
+                    height: 180
+                    active: denoiserToggle.active && denoiserDialog.visible && denoiserDialog.nrMode === 0
+                    inputMags: AudioEngine.deNoiser.inputMagnitudes
+                    outputMags: AudioEngine.deNoiser.outputMagnitudes
+                    noiseMags: AudioEngine.deNoiser.noiseMagnitudes
+                }
+
+                Item {
+                    width: parent.width; height: 140
+
+                    BigMetalKnob {
+                        id: denoiserReductionDial
+                        size: 120
+                        from: 0; to: 1.0
+                        value: AudioEngine.deNoiser.reduction
+                        activeColor: "#3498db"
+                        anchors.centerIn: parent
+                        onMoved: (val) => AudioEngine.deNoiser.setReduction(val)
+                        
+                        Label {
+                            text: qsTr("Reduction")
+                            anchors.top: denoiserReductionDial.bottom
+                            anchors.topMargin: 8
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            color: "#aaa"
+                            font.pixelSize: 12
+                        }
+                        Label {
+                            anchors.top: parent.top; anchors.topMargin: -16
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: parent.value.toFixed(1) + " dB"
+                            color: "#666"; font.pixelSize: 9
+                        }
+                    }
+                }
+
+                Label {
+                    text: qsTr("Smoothing: valores altos = más suave. Bajos = más agresivo.")
+                    color: "#777"; font.pixelSize: 11
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    width: parent.width
+                }
+            }
+
+            // ==========================================
+            // MODO 1: Avanzado (Sustracción Espectral por Perfil)
+            // ==========================================
+            Column {
+                width: parent.width
+                spacing: 12
+                visible: denoiserDialog.nrMode === 1
+
+                SpectralDisplay {
+                    width: parent.width
+                    height: 130
+                    active: denoiserDialog.hasProfile && denoiserDialog.nrMode === 1
+                    noiseMags: TrackModel.noiseProfileMagnitudes
+                    inputMags: []
+                    outputMags: []
+                    
+                    Label {
+                        anchors.centerIn: parent
+                        text: qsTr("Sin perfil capturado")
+                        color: "#555"; font.pixelSize: 12
+                        visible: !denoiserDialog.hasProfile
+                    }
+                }
+
+                Label {
+                    text: qsTr("Paso 1: Capturar perfil de ruido")
+                    color: "#1abc9c"; font.pixelSize: 12; font.bold: true
+                }
+                
+                GridLayout {
+                    columns: 2; columnSpacing: 8; rowSpacing: 8; width: parent.width
+                    Label { text: qsTr("Pista:"); color: "#888"; verticalAlignment: Text.AlignVCenter }
+                    ComboBox {
+                        id: nrTrackCombo
+                        Layout.fillWidth: true
+                        model: {
+                            var items = []
+                            for (var i = 0; i < TrackModel.count; i++)
+                                items.push(qsTr("Pista %1").arg(i + 1))
+                            return items
+                        }
+                    }
+                    Label { text: qsTr("Clip:"); color: "#888"; verticalAlignment: Text.AlignVCenter }
+                    SpinBox { id: nrClipSpin; from: 1; to: 99; value: 1; Layout.preferredWidth: 110 }
+                }
+
+                RowLayout {
+                    spacing: 8; width: parent.width
+                    Label { text: qsTr("Rango (s):"); color: "#888" }
+                    SpinBox { id: nrFromSpin; from: 0; to: 999; value: 0; editable: true; Layout.preferredWidth: 88 }
+                    Label { text: "-"; color: "#888" }
+                    SpinBox { id: nrToSpin; from: 0; to: 999; value: 0; editable: true; Layout.preferredWidth: 88 }
+                    Button {
+                        text: qsTr("Capturar")
+                        Layout.fillWidth: true
+                        leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
+                        onClicked: {
+                            TrackModel.noiseProfileCapture(
+                                nrTrackCombo.currentIndex, nrClipSpin.value - 1,
+                                nrFromSpin.value, nrToSpin.value)
+                            nrStatus.text = TrackModel.hasNoiseProfile ? qsTr("Perfil capturado.") : qsTr("Error al capturar.")
+                            nrStatus.color = TrackModel.hasNoiseProfile ? "#2ecc71" : "#e74c3c"
+                        }
+                        background: Rectangle { color: parent.pressed ? "#1f6391" : (parent.hovered ? "#2e8ece" : "#2980b9"); radius: 4 }
+                        contentItem: Label {
+                            text: parent.text
+                            color: "#ffffff"
+                            font.pixelSize: 12
+                            font.bold: true
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: "#3c4146" }
+
+                Label {
+                    text: qsTr("Paso 2: Parámetros y Aplicación")
+                    color: denoiserDialog.hasProfile ? "#1abc9c" : "#444"
+                    font.pixelSize: 12; font.bold: true
+                }
+
+                Row {
+                    spacing: 30
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    enabled: denoiserDialog.hasProfile
+                    opacity: enabled ? 1.0 : 0.3
+
+                    Column {
+                        spacing: 4
+                        anchors.verticalCenter: parent.verticalCenter
+                        BigMetalKnob {
+                            id: nrReductionDial
+                            size: 90
+                            from: 0; to: 40
+                            value: 12
+                            activeColor: "#1abc9c"
+                        }
+                        Label {
+                            text: qsTr("Reduction")
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            color: "#aaa"; font.pixelSize: 11
+                        }
+                    }
+
+                    Column {
+                        spacing: 4
+                        anchors.verticalCenter: parent.verticalCenter
+                        BigMetalKnob {
+                            id: nrSensitivityDial
+                            size: 90
+                            from: 0; to: 24
+                            value: 6
+                            activeColor: "#f39c12"
+                        }
+                        Label {
+                            text: qsTr("Sensitivity")
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            color: "#aaa"; font.pixelSize: 11
+                        }
+                    }
+                }
+
+                Button {
+                    text: qsTr("Aplicar Noise Reduction")
+                    width: parent.width
+                    topPadding: 8; bottomPadding: 8; leftPadding: 16; rightPadding: 16
+                    enabled: denoiserDialog.hasProfile
+                    onClicked: {
+                        var ok = UndoManager.noiseReduce(
+                            nrTrackCombo.currentIndex, nrClipSpin.value - 1,
+                            nrReductionDial.value, nrSensitivityDial.value)
+                        nrStatus.text = ok ? qsTr("Efecto aplicado correctamente.") : qsTr("Error al aplicar.")
+                    }
+                    background: Rectangle { color: parent.enabled ? (parent.pressed ? "#1e8449" : "#27ae60") : "#444"; radius: 4 }
+                    contentItem: Label {
+                        text: parent.text
+                        color: parent.enabled ? "#ffffff" : "#999"
+                        font.pixelSize: 12
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                Label { id: nrStatus; text: ""; color: "#888"; font.pixelSize: 11; anchors.horizontalCenter: parent.horizontalCenter }
+            }
+
+            // --- Botón Cerrar inferior ---
+            Button {
+                text: qsTr("Cerrar")
                 anchors.horizontalCenter: parent.horizontalCenter
-                horizontalAlignment: Text.AlignHCenter
+                implicitWidth: 120
+                topPadding: 6; bottomPadding: 6; leftPadding: 16; rightPadding: 16
+                onClicked: denoiserDialog.close()
             }
         }
     }
@@ -4056,6 +4244,7 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.margins: 16
             fx: AudioEngine.noiseGate
+            onCloseRequested: noiseGateDialog.close()
         }
     }
 
@@ -4107,22 +4296,25 @@ ApplicationWindow {
             Rectangle { width: parent.width; height: 1; color: "#2a2d32" }
 
             Rectangle {
-                width: parent.width; height: 48
+                width: parent.width
+                implicitHeight: Math.max(48, deepMasterWarnRow.implicitHeight + 16)
+                height: implicitHeight
                 color: deepDenoiseDialog.dfx && deepDenoiseDialog.dfx.isReady ? "#1a2030" : "#241e10"
                 radius: 4; border.color: deepDenoiseDialog.dfx && deepDenoiseDialog.dfx.isReady ? "#2a3850" : "#5a3e10"
                 visible: deepDenoiseDialog.dfx !== null
                 
                 RowLayout {
+                    id: deepMasterWarnRow
                     anchors.fill: parent; anchors.margins: 8; spacing: 8
                     
                     Label {
                         Layout.fillWidth: true
                         text: {
                             if (!deepDenoiseDialog.dfx) return ""
-                            if (deepDenoiseDialog.dfx.isReady) return "✓ Modelo IA cargado y listo."
+                            if (deepDenoiseDialog.dfx.isReady) return qsTr("✓ Modelo IA cargado y listo.")
                             if (deepDenoiseDialog.dfx.downloadProgress > 0 && deepDenoiseDialog.dfx.downloadProgress < 1.0)
-                                return "Descargando modelo: " + Math.round(deepDenoiseDialog.dfx.downloadProgress * 100) + "%"
-                            return "⚠ Faltan los pesos del modelo (~20MB)."
+                                return qsTr("Descargando modelo: %1%").arg(Math.round(deepDenoiseDialog.dfx.downloadProgress * 100))
+                            return qsTr("⚠ Faltan los pesos del modelo (~20MB).")
                         }
                         color: deepDenoiseDialog.dfx && deepDenoiseDialog.dfx.isReady ? "#5dade2" : "#d4a017"
                         font.pixelSize: 10; wrapMode: Text.WordWrap
@@ -4130,11 +4322,12 @@ ApplicationWindow {
                     }
                     
                     Button {
-                        text: "Descargar"
+                        text: qsTr("Descargar")
+                        leftPadding: 12; rightPadding: 12; topPadding: 5; bottomPadding: 5
                         visible: deepDenoiseDialog.dfx && !deepDenoiseDialog.dfx.isReady && deepDenoiseDialog.dfx.downloadProgress === 0
                         onClicked: { if(deepDenoiseDialog.dfx) deepDenoiseDialog.dfx.retryDownload() }
                         background: Rectangle { color: parent.pressed ? "#7a5a00" : "#5a4200"; radius: 3; border.color: "#d4a017"; border.width: 1 }
-                        contentItem: Label { anchors.centerIn: parent; text: parent.text; color: "#f0c040"; font.pixelSize: 10; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                        contentItem: Label { text: parent.text; color: "#f0c040"; font.pixelSize: 10; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     }
                 }
             }
@@ -4611,6 +4804,7 @@ ApplicationWindow {
                 spacing: 8
                 Button {
                     text: qsTr("Recuperar")
+                    leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
                     onClicked: {
                         recoveryDialog.close()
                         if (ProjectIO.recoverProject()) {
@@ -4624,6 +4818,7 @@ ApplicationWindow {
                 }
                 Button {
                     text: qsTr("No ahora")
+                    leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
                     onClicked: {
                         recoveryDialog.close()
                     }
@@ -4631,6 +4826,7 @@ ApplicationWindow {
                 Button {
                     text: qsTr("Descartar copia")
                     flat: true
+                    leftPadding: 14; rightPadding: 14; topPadding: 6; bottomPadding: 6
                     onClicked: {
                         recoveryDialog.close()
                         ProjectIO.discardRecovery()

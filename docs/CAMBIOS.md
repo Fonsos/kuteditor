@@ -111,6 +111,22 @@ página «Estudio de edición» y los ganchos del núcleo (`admin_pages`, `admin
   (`schema.sql` crea `alerts`; `cli/install.php` aplica el esquema por sentencias y reintenta tras crear las tablas OP3). Conviene
   avisar a Ernesto.
 
+## 2026-11-18 · Unión con los proyectos de Ernesto (KutEditor 2.74 y KutPod 1.2.52)
+
+- **KutPod → 1.2.52** (desde 1.2.33): idiomas, plugins con textos traducidos, Fediverso (resolución de episodios y likes), duración de audio
+  robusta, token de API de 1 año, etc. Conflictos: `activitypub.php` y `pages/alerts.php` (se toma lo nuevo de Ernesto y se reaplican el
+  delimitador `~` en las expresiones con `[^/?#]` —sus expresiones nuevas tenían el mismo fallo— y `kp_handle_domain()`), `index.php`,
+  `pages/plugins.php` (dependientes + traducciones), `pages/preferences.php` (idioma + dominio normalizado), `.gitignore`.
+- **KutEditor → 2.74** (desde 2.56): PipeWire/JACK (filtros), idiomas (EN/ES), ventana de reducción de ruido unificada, sesión
+  expirada, duración del episodio al publicar, botones «Ver»/«Editar» en la biblioteca online, etc. Conflicto en `TrackModel.cpp`: Ernesto
+  rehízo `rebuildFlatCache`/`readMixSegment` para fuentes con distinto número de canales, pero `readMixSegment` seguía devolviendo la
+  pista en sus canales originales (una pista mono se oye al doble de velocidad). Se conserva la de este fork (salida siempre estéreo,
+  mono → L=R) y se toma la suya en `rebuildFlatCache`. `README.md`: se mantienen ambas secciones.
+- Comprobado: sintaxis de todos los archivos C++ tocados con las cabeceras de Qt 6.4 y `php -l` en KutPod; en KutPod, instalación limpia,
+  proxy HTTPS, login de API, cookie `Secure` y robots. **Sin compilar ni ejecutar KutEditor completo.**
+
+---
+
 ## 2026-11-18 · KutEditor
 
 - **Exportación por bloques (modo en prueba)**: *Ajustes → Exportación → «Exportar por bloques (en prueba)»*. El export normal mezcla todo

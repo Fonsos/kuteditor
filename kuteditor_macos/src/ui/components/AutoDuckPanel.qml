@@ -28,21 +28,31 @@ Column {
 
     // === Tip + Auto-detectar ===
     Rectangle {
-        width:parent.width; height:36; color:"#1a2030"; radius:4; border.color:"#2a3850"
-        Row {
+        width: parent.width
+        implicitHeight: Math.max(40, duckTipRow.implicitHeight + 16)
+        height: implicitHeight
+        color: "#1a2030"; radius: 4; border.color: "#2a3850"
+        RowLayout {
+            id: duckTipRow
             anchors.fill: parent
             anchors.margins: 8
             spacing: 8
-            Label { text:"💡 Asigna pistas manualmente o usa Auto-detectar."; color:"#5d8fd4"; font.pixelSize:9; wrapMode:Text.WordWrap; width:parent.width - autoBtn.width - 16; anchors.verticalCenter:autoBtn.verticalCenter }
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("💡 Asigna pistas manualmente o usa Auto-detectar.")
+                color: "#5d8fd4"; font.pixelSize: 9; wrapMode: Text.WordWrap
+                verticalAlignment: Text.AlignVCenter
+            }
             Button {
-                id: autoBtn; text:"Auto"; width:50; height:22
+                id: autoBtn; text: "Auto"
+                leftPadding: 12; rightPadding: 12; topPadding: 4; bottomPadding: 4
                 onClicked: {
                     if(!fx) return
                     // Asume que la pista actual es control, y la siguiente es target (si es de pista)
                     // Si es Master, no tiene trackIndex, usamos valores fijos o dejamos al usuario.
                 }
-                background: Rectangle { color:parent.pressed?"#1a4a7a":"#1e3a5f"; radius:3; border.color:"#2980b9" }
-                contentItem: Label { anchors.centerIn: parent; text:parent.text; color:"#5dade2"; font.pixelSize:9; font.bold:true; horizontalAlignment:Text.AlignHCenter; verticalAlignment:Text.AlignVCenter }
+                background: Rectangle { color: parent.pressed ? "#1a4a7a" : "#1e3a5f"; radius: 3; border.color: "#2980b9" }
+                contentItem: Label { text: parent.text; color: "#5dade2"; font.pixelSize: 9; font.bold: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
             }
         }
     }
@@ -51,7 +61,7 @@ Column {
     Row {
         spacing:8; width:parent.width
         Column { width:(parent.width-8)/2; spacing:3
-            Label { text:"VOZ (Control)"; color:"#777"; font.pixelSize:8; font.bold:true; font.letterSpacing:0.5 }
+            Label { text: qsTr("VOZ (Control)"); color:"#777"; font.pixelSize:8; font.bold:true; font.letterSpacing:0.5 }
             ComboBox {
                 width:parent.width; height:26
                 // TrackModel is globally available
@@ -63,7 +73,7 @@ Column {
             }
         }
         Column { width:(parent.width-8)/2; spacing:3
-            Label { text:"MÚSICA (Objetivo)"; color:"#777"; font.pixelSize:8; font.bold:true; font.letterSpacing:0.5 }
+            Label { text: qsTr("MÚSICA (Objetivo)"); color:"#777"; font.pixelSize:8; font.bold:true; font.letterSpacing:0.5 }
             ComboBox {
                 width:parent.width; height:26
                 model: { var a=["— Ninguna —"]; for(var i=0;i<TrackModel.count;i++){var d=TrackModel.getTrackData(i); a.push("P"+(i+1)+": "+(d.name||"Sin nombre"))} return a }
