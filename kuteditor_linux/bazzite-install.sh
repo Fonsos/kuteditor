@@ -69,6 +69,14 @@ box 'sudo dnf install -y --setopt=install_weak_deps=False google-noto-color-emoj
   || sudo dnf install -y --setopt=install_weak_deps=False google-noto-emoji-color-fonts dejavu-sans-fonts 2>/dev/null \
   || echo "(aviso) no se pudo instalar la fuente de emojis; los iconos principales no dependen de ella"; fc-cache -f >/dev/null 2>&1 || true'
 
+# ffmpeg: el editor corre DENTRO del contenedor y solo ve los programas de allí (el del sistema no cuenta).
+# Se necesita para exportar a MP3/OGG/FLAC/M4A (WAV no lo usa). Fedora solo trae ffmpeg-free, que NO incluye el
+# codificador MP3: para MP3 hay que usar el ffmpeg completo de RPM Fusion (ver el aviso de abajo).
+box 'command -v ffmpeg >/dev/null 2>&1 || sudo dnf install -y --setopt=install_weak_deps=False ffmpeg-free 2>/dev/null \
+  || echo "(aviso) no se pudo instalar ffmpeg; solo podrás exportar a WAV"'
+box 'ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libmp3lame \
+  || echo "(aviso) este ffmpeg no puede crear MP3. Para MP3: distrobox enter '"$BOX"' -- sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-\$(rpm -E %fedora).noarch.rpm && distrobox enter '"$BOX"' -- sudo dnf swap -y ffmpeg-free ffmpeg --allowerasing"'
+
 if [ "$WHISPER" = 1 ]; then
   echo "==> 3/5 whisper.cpp (transcripción local; solo CPU, para GPU ver docs)"
   box 'set -e
