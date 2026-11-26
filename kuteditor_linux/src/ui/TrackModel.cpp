@@ -20,6 +20,7 @@
 #include <QTemporaryFile>
 #include "audio/KutScratch.h"
 #include "util/CrashLog.h"
+#include "util/FfmpegLocator.h"
 #include <QUrl>
 #include <QVariantMap>
 #include <algorithm>
@@ -4403,30 +4404,7 @@ bool TrackModel::noiseReduce(int trackIndex, int clipIndex, float reductionDb,
   return true;
 }
 
-static QString findFfmpegExecutable() {
-  QString ffmpegPath = QCoreApplication::applicationDirPath() + "/ffmpeg";
-#ifdef Q_OS_WIN
-  ffmpegPath += ".exe";
-#endif
-  if (QFile::exists(ffmpegPath)) {
-    return ffmpegPath;
-  }
-
-#ifdef Q_OS_MAC
-  const QStringList macPaths = {
-      "/opt/homebrew/bin/ffmpeg",
-      "/usr/local/bin/ffmpeg",
-      "/opt/local/bin/ffmpeg"
-  };
-  for (const QString &path : macPaths) {
-    if (QFile::exists(path)) {
-      return path;
-    }
-  }
-#endif
-
-  return QStandardPaths::findExecutable("ffmpeg");
-}
+static QString findFfmpegExecutable() { return FfmpegLocator::find(); }
 
 #if defined(Q_OS_MAC) || defined(HAVE_COREAUDIO)
 static bool readAudioFile_CoreAudio(const QString &path, QVector<float> &outSamples,

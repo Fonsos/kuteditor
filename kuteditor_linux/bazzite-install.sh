@@ -61,21 +61,13 @@ box 'sudo dnf install -y --setopt=install_weak_deps=False \
   qt6-qtwayland qt6-qtsvg \
   pipewire-jack-audio-connection-kit-devel libsamplerate-devel taglib-devel \
   vulkan-headers vulkan-loader-devel glslang \
-  pipewire-jack-audio-connection-kit pipewire-utils desktop-file-utils'
+  pipewire-jack-audio-connection-kit pipewire-utils desktop-file-utils curl xz'
 
 # Fuentes de emojis y símbolos (el contenedor no las trae; algunos textos de la interfaz las usan: ⚠ ✓ 💡…).
 # Aparte y tolerante: si el nombre del paquete no existe en esta versión de Fedora no debe abortar la instalación.
 box 'sudo dnf install -y --setopt=install_weak_deps=False google-noto-color-emoji-fonts dejavu-sans-fonts 2>/dev/null \
   || sudo dnf install -y --setopt=install_weak_deps=False google-noto-emoji-color-fonts dejavu-sans-fonts 2>/dev/null \
   || echo "(aviso) no se pudo instalar la fuente de emojis; los iconos principales no dependen de ella"; fc-cache -f >/dev/null 2>&1 || true'
-
-# ffmpeg: el editor corre DENTRO del contenedor y solo ve los programas de allí (el del sistema no cuenta).
-# Se necesita para exportar a MP3/OGG/FLAC/M4A (WAV no lo usa). Fedora solo trae ffmpeg-free, que NO incluye el
-# codificador MP3: para MP3 hay que usar el ffmpeg completo de RPM Fusion (ver el aviso de abajo).
-box 'command -v ffmpeg >/dev/null 2>&1 || sudo dnf install -y --setopt=install_weak_deps=False ffmpeg-free 2>/dev/null \
-  || echo "(aviso) no se pudo instalar ffmpeg; solo podrás exportar a WAV"'
-box 'ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libmp3lame \
-  || echo "(aviso) este ffmpeg no puede crear MP3. Para MP3: distrobox enter '"$BOX"' -- sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-\$(rpm -E %fedora).noarch.rpm && distrobox enter '"$BOX"' -- sudo dnf swap -y ffmpeg-free ffmpeg --allowerasing"'
 
 if [ "$WHISPER" = 1 ]; then
   echo "==> 3/5 whisper.cpp (transcripción local; solo CPU, para GPU ver docs)"
@@ -143,6 +135,41 @@ MimeType=application/x-podcastproj;
 StartupWMClass=kuteditor
 DESK
 update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+
+# ffmpeg incluido: el editor corre DENTRO del contenedor y no ve el ffmpeg del sistema, y el ffmpeg-free de
+# Fedora no trae el codificador MP3. Se descarga una compilación estática (BtbN/FFmpeg-Builds, GPL, con MP3,
+# AAC/M4A, OGG y FLAC), se comprueba su suma SHA-256 y se deja en /usr/lib/kuteditor/, donde el editor la busca
+# antes que la del sistema. Si falla la descarga, el editor sigue usando el ffmpeg que haya en el contenedor.
+echo "==> ffmpeg incluido (MP3, M4A, OGG, FLAC)"
+FF_BASE=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
+FF_CACHE="$HOME/.cache/kuteditor-ffmpeg"; mkdir -p "$FF_CACHE"
+if curl -fsSL "$FF_BASE/checksums.sha256" -o "$FF_CACHE/checksums.sha256"; then
+  # Última versión estable (ffmpeg-nX.Y-latest-linux64-gpl-X.Y.tar.xz); si no hay, la de desarrollo.
+  FF_FILE=$(grep -oE 'ffmpeg-n[0-9.]+-latest-linux64-gpl-[0-9.]+\.tar\.xz' "$FF_CACHE/checksums.sha256" | sort -V | tail -1)
+  [ -n "$FF_FILE" ] || FF_FILE=ffmpeg-master-latest-linux64-gpl.tar.xz
+  FF_SUM=$(awk -v f="$FF_FILE" '$2==f || $2=="*"f {print $1}' "$FF_CACHE/checksums.sha256")
+  if [ -f "$FF_CACHE/$FF_FILE" ] && echo "$FF_SUM  $FF_CACHE/$FF_FILE" | sha256sum -c --status; then
+    echo "   ya descargado: $FF_FILE"
+  else
+    rm -f "$FF_CACHE"/ffmpeg-*.tar.xz
+    curl -fL --progress-bar "$FF_BASE/$FF_FILE" -o "$FF_CACHE/$FF_FILE" || true
+  fi
+  if [ -n "$FF_SUM" ] && echo "$FF_SUM  $FF_CACHE/$FF_FILE" | sha256sum -c --status 2>/dev/null; then
+    rm -rf "$FF_CACHE/x"; mkdir -p "$FF_CACHE/x"
+    tar -xJf "$FF_CACHE/$FF_FILE" -C "$FF_CACHE/x" --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+    box "sudo install -Dm755 '$FF_CACHE/x/ffmpeg' /usr/lib/kuteditor/ffmpeg && sudo install -Dm755 '$FF_CACHE/x/ffprobe' /usr/lib/kuteditor/ffprobe"
+    rm -rf "$FF_CACHE/x"
+    if box '/usr/lib/kuteditor/ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libmp3lame'; then
+      echo "   ✓ ffmpeg incluido con MP3 ($FF_FILE)"
+    else
+      echo "(aviso) el ffmpeg incluido no arranca o no trae MP3" >&2
+    fi
+  else
+    echo "(aviso) no se pudo descargar o verificar ffmpeg; se usará el del contenedor si lo hay" >&2
+  fi
+else
+  echo "(aviso) sin acceso a GitHub para descargar ffmpeg; se usará el del contenedor si lo hay" >&2
+fi
 
 cat <<MSG
 

@@ -4,6 +4,7 @@
 #include "audio/TrackFxChain.h"
 #include "ui/TrackModel.h"
 #include "ui/ChapterModel.h"
+#include "util/FfmpegLocator.h"
 
 #include <QFile>
 #include <QDataStream>
@@ -703,10 +704,10 @@ bool ExportManager::buildFfmpegJob(const QString &filePath, int sampleRate, int 
                                    const QString &format, const QVariantMap &metadata,
                                    qint64 totalFrames, FfmpegJob &job)
 {
-    // Detectar ffmpeg en PATH.
-    const QString ffmpegPath = QStandardPaths::findExecutable("ffmpeg");
+    // ffmpeg incluido con el programa o, si no, el del sistema.
+    const QString ffmpegPath = FfmpegLocator::find();
     if (ffmpegPath.isEmpty()) {
-        m_lastError = tr("ffmpeg no encontrado en PATH. Instala ffmpeg para exportar a %1.")
+        m_lastError = tr("No se encuentra ffmpeg. Vuelve a ejecutar el instalador o instala ffmpeg para exportar a %1.")
                         .arg(format);
         return false;
     }

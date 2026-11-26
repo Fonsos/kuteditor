@@ -265,6 +265,8 @@ add_library(kuttranscript STATIC
     src/sync/TrackSync.h
     src/util/CrashLog.cpp
     src/util/CrashLog.h
+    src/util/FfmpegLocator.cpp
+    src/util/FfmpegLocator.h
 )
 target_include_directories(kuttranscript PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/src/transcription)
 target_link_libraries(kuttranscript PUBLIC Qt6::Core Qt6::Gui)
